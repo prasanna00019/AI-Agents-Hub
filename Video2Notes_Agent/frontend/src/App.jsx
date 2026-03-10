@@ -1,7 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
-import { Youtube, Settings2, Play, MessageSquare, Loader2, FileText, Send, Clock, Bot, Sparkles } from 'lucide-react';
+import { Youtube, Settings2, Play, MessageSquare, Loader2, FileText, Send, Clock, Bot, Sparkles, FileDown, FileCode2 } from 'lucide-react';
+import html2pdf from 'html2pdf.js';
+
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
+import { ScrollArea } from "../components/ui/scroll-area";
+import { Textarea } from "../components/ui/textarea";
 
 const API_BASE = "http://localhost:8000/api";
 
@@ -59,6 +68,29 @@ function App() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
 
+  const downloadPDF = () => {
+    const element = document.getElementById('notes-content');
+    if (!element) return;
+    const opt = {
+      margin: 0.5,
+      filename: `${videoTitle || 'notes'}.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2 },
+      jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+    };
+    html2pdf().set(opt).from(element).save();
+  };
+
+  const downloadMarkdown = () => {
+    const blob = new Blob([notes], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${videoTitle || 'notes'}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleGenerate = async (e) => {
     e.preventDefault();
     if (!url.trim()) return;
@@ -108,14 +140,14 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-indigo-500/30">
+    <div className="min-h-screen bg-zinc-900 text-zinc-100 font-sans selection:bg-emerald-500/30">
       {/* Navbar */}
-      <nav className="border-b border-white/5 bg-slate-900/50 backdrop-blur-xl sticky top-0 z-50">
+      <nav className="border-b border-white/5 bg-zinc-900/50 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-emerald-500 to-teal-500 flex items-center justify-center">
             <Sparkles className="w-5 h-5 text-white" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+          <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">
             VideoNotes Agent
           </h1>
         </div>
@@ -128,109 +160,111 @@ function App() {
             <div className="text-center mb-10">
               <h2 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-4 leading-tight">
                 Turn any long video into <br />
-                <span className="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+                <span className="bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">
                   Intelligent Notes.
                 </span>
               </h2>
-              <p className="text-slate-400 text-lg max-w-xl mx-auto">
+              <p className="text-zinc-400 text-lg max-w-xl mx-auto">
                 Paste a YouTube URL, extract exactly what you need, and ask follow-up questions directly to the video.
               </p>
             </div>
 
-            <form onSubmit={handleGenerate} className="bg-slate-800/50 border border-white/10 rounded-2xl p-6 shadow-2xl backdrop-blur-md">
-              <div className="relative mb-4">
-                <Youtube className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-                <input
-                  type="url"
-                  placeholder="https://youtube.com/watch?v=..."
-                  className="w-full bg-slate-900/50 border border-white/5 rounded-xl py-4 pl-12 pr-4 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all text-lg"
-                  value={url}
-                  onChange={e => setUrl(e.target.value)}
-                  disabled={status === 'processing'}
-                  required
-                />
-              </div>
+            <Card className="bg-zinc-800/50 border-white/10 shadow-2xl backdrop-blur-md">
+              <CardContent className="p-6">
+              <form onSubmit={handleGenerate}>
+                <div className="relative mb-4">
+                  <Youtube className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 w-5 h-5 z-10" />
+                  <Input
+                    type="url"
+                    placeholder="https://youtube.com/watch?v=..."
+                    className="w-full bg-zinc-900/50 border-white/5 rounded-xl py-6 pl-12 pr-4 text-zinc-100 placeholder:text-zinc-500 text-lg focus-visible:ring-emerald-500/50"
+                    value={url}
+                    onChange={e => setUrl(e.target.value)}
+                    disabled={status === 'processing'}
+                    required
+                  />
+                </div>
 
               <div className="mb-6">
-                <button
-                  type="button"
-                  onClick={() => setShowSettings(!showSettings)}
-                  className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
-                >
-                  <Settings2 className="w-4 h-4" />
-                  {showSettings ? 'Hide Advanced Settings' : 'Advanced Settings (Timestamps, Models)'}
-                </button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setShowSettings(!showSettings)}
+                    className="flex items-center gap-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors px-0 hover:bg-transparent"
+                  >
+                    <Settings2 className="w-4 h-4" />
+                    {showSettings ? 'Hide Advanced Settings' : 'Advanced Settings (Timestamps, Models)'}
+                  </Button>
 
-                {showSettings && (
-                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 animate-in slide-in-from-top-2 duration-300">
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">AI Model</label>
-                        <select
-                          value={provider}
-                          onChange={e => setProvider(e.target.value)}
-                          className="w-full bg-slate-900 border border-white/10 rounded-lg p-3 text-sm focus:ring-2 focus:ring-indigo-500/50 outline-none"
-                        >
-                          <option value="gemini">Google Gemini 2.5 Flash</option>
-                          <option value="anthropic">Anthropic Claude 3.5 Sonnet</option>
-                          <option value="ollama">Ollama (Local)</option>
-                        </select>
+                  {showSettings && (
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-top-2 duration-300">
+                      <div className="space-y-2">
+                        <Label className="uppercase tracking-wider text-zinc-400 text-xs">AI Model</Label>
+                        <Select value={provider} onValueChange={setProvider} disabled={status === 'processing'}>
+                          <SelectTrigger className="w-full bg-zinc-900 border-white/10 text-zinc-100 h-11">
+                            <SelectValue placeholder="Select Model" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-zinc-900 border-white/10 text-zinc-100">
+                            <SelectItem value="gemini">Google Gemini 2.5 Flash</SelectItem>
+                            <SelectItem value="anthropic">Anthropic Claude 3.5 Sonnet</SelectItem>
+                            <SelectItem value="ollama">Ollama (Local)</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
-                    </div>
-                    
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block flex items-center gap-2 text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">
-                          <Clock className="w-3 h-3" /> Timestamp Range (Optional)
-                        </label>
+                      
+                      <div className="space-y-2">
+                        <Label className="flex items-center gap-2 uppercase tracking-wider text-zinc-400 text-xs">
+                            <Clock className="w-3 h-3" /> Timestamp Range (Optional)
+                        </Label>
                         <div className="flex items-center gap-2">
-                          <input
+                          <Input
                             type="text"
                             placeholder="00:00"
-                            className="w-full bg-slate-900 border border-white/10 rounded-lg p-3 text-sm focus:ring-2 focus:ring-indigo-500/50 outline-none text-center placeholder:text-slate-600"
+                            className="bg-zinc-900 border-white/10 text-center h-11"
                             value={startTime}
                             onChange={e => setStartTime(e.target.value)}
                           />
-                          <span className="text-slate-500">to</span>
-                          <input
+                          <span className="text-zinc-500">to</span>
+                          <Input
                             type="text"
                             placeholder="05:30"
-                            className="w-full bg-slate-900 border border-white/10 rounded-lg p-3 text-sm focus:ring-2 focus:ring-indigo-500/50 outline-none text-center placeholder:text-slate-600"
+                            className="bg-zinc-900 border-white/10 text-center h-11"
                             value={endTime}
                             onChange={e => setEndTime(e.target.value)}
                           />
                         </div>
-                        <p className="text-[10px] text-slate-500 mt-2">Use MM:SS format to process only a specific part of the video.</p>
+                        <p className="text-[10px] text-zinc-500 mt-1">Use MM:SS format to process only a specific part of the video.</p>
                       </div>
                     </div>
+                  )}
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={status === 'processing'}
+                  className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-semibold py-6 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/25 border-none h-auto text-base"
+                >
+                  {status === 'processing' ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>Processing ({progress})...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-5 h-5 fill-current" />
+                      <span>Generate Intelligent Notes</span>
+                    </>
+                  )}
+                </Button>
+
+                {status === 'error' && (
+                  <div className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
+                    {progress}
                   </div>
                 )}
-              </div>
-
-              <button
-                type="submit"
-                disabled={status === 'processing'}
-                className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-semibold py-4 px-6 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {status === 'processing' ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    <span>Processing ({progress})...</span>
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-5 h-5 fill-current" />
-                    <span>Generate Intelligent Notes</span>
-                  </>
-                )}
-              </button>
-
-              {status === 'error' && (
-                <div className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
-                  {progress}
-                </div>
-              )}
-            </form>
+              </form>
+              </CardContent>
+            </Card>
           </div>
         )}
 
@@ -241,89 +275,101 @@ function App() {
             {/* Left Column: Metadata & Notes */}
             <div className="lg:col-span-8 space-y-6">
               
-              {/* Video Header Card */}
-              <div className="bg-slate-800/40 border border-white/10 rounded-2xl p-6 backdrop-blur-md">
-                <div className="flex items-start gap-4">
-                  <div className="p-3 bg-indigo-500/10 rounded-xl border border-indigo-500/20 mt-1">
-                    <FileText className="w-6 h-6 text-indigo-400" />
+              <Card className="bg-zinc-800/40 border-white/10 backdrop-blur-md">
+                <CardHeader className="flex flex-col sm:flex-row items-start justify-between gap-4 space-y-0">
+                  <div className="flex items-start gap-4">
+                    <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
+                      <FileText className="w-6 h-6 text-emerald-400" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-2xl font-bold text-white mb-2 leading-tight">{videoTitle}</CardTitle>
+                      <CardDescription className="text-sm text-zinc-400 line-clamp-3 leading-relaxed">
+                        {videoDescription || "No description provided."}
+                      </CardDescription>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-2xl font-bold text-white mb-2 leading-tight">{videoTitle}</h2>
-                    <p className="text-sm text-slate-400 line-clamp-3 leading-relaxed">
-                      {videoDescription || "No description provided."}
-                    </p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={downloadMarkdown} className="bg-zinc-900 border-white/10 text-zinc-300 hover:text-white cursor-pointer hover:bg-zinc-800">
+                      <FileCode2 className="w-4 h-4 mr-2" /> Markdown
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={downloadPDF} className="bg-zinc-900 border-white/10 text-zinc-300 hover:text-white cursor-pointer hover:bg-zinc-800">
+                      <FileDown className="w-4 h-4 mr-2" /> PDF
+                    </Button>
                   </div>
-                </div>
-              </div>
+                </CardHeader>
+              </Card>
 
               {/* Notes Content */}
-              <div className="bg-slate-900 border border-white/10 rounded-2xl p-8 shadow-xl prose prose-invert prose-indigo max-w-none">
+              <div id="notes-content" className="bg-zinc-900 border border-white/10 rounded-2xl p-8 shadow-xl prose prose-invert prose-indigo max-w-none">
                 <ReactMarkdown>{notes}</ReactMarkdown>
               </div>
             </div>
 
             {/* Right Column: AI Chat for RAG */}
-            <div className="lg:col-span-4 sticky top-24 bg-slate-800/80 border border-white/10 rounded-2xl flex flex-col h-[600px] shadow-xl backdrop-blur-xl overflow-hidden">
-              <div className="p-5 border-b border-white/10 bg-slate-800/50 flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500/30">
-                  <Bot className="w-4 h-4 text-purple-400" />
+            <Card className="lg:col-span-4 sticky top-24 bg-zinc-800/80 border-white/10 flex flex-col h-[600px] shadow-xl backdrop-blur-xl overflow-hidden p-0">
+              <div className="p-5 border-b border-white/10 bg-zinc-800/50 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-teal-500/20 flex items-center justify-center border border-teal-500/30">
+                  <Bot className="w-4 h-4 text-teal-400" />
                 </div>
                 <div>
                   <h3 className="font-semibold text-white tracking-tight">Q&A Chat</h3>
-                  <p className="text-xs text-slate-400">Ask questions about the video</p>
+                  <p className="text-xs text-zinc-400">Ask questions about the video</p>
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-5 space-y-4">
-                {chatMessages.length === 0 && (
-                  <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 space-y-3">
-                    <MessageSquare className="w-8 h-8 opacity-50" />
-                    <p className="text-sm px-4">Don't understand a concept? Ask follow-up questions to query the video directly.</p>
-                  </div>
-                )}
-                {chatMessages.map((msg) => (
-                  <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[85%] rounded-2xl p-4 text-sm leading-relaxed ${
-                      msg.role === 'user' 
-                        ? 'bg-indigo-600 text-white rounded-tr-sm' 
-                        : 'bg-slate-700/50 text-slate-200 border border-white/5 rounded-tl-sm'
-                    }`}>
-                      {msg.role === 'assistant' ? <ReactMarkdown>{msg.text}</ReactMarkdown> : msg.text}
+              <ScrollArea className="flex-1 p-5">
+                <div className="space-y-4 pr-4 pb-4">
+                  {chatMessages.length === 0 && (
+                    <div className="h-full flex flex-col items-center justify-center text-center text-zinc-500 space-y-3 mt-10">
+                      <MessageSquare className="w-8 h-8 opacity-50" />
+                      <p className="text-sm px-4">Don't understand a concept? Ask follow-up questions to query the video directly.</p>
                     </div>
-                  </div>
-                ))}
-                {isChatting && (
-                  <div className="flex justify-start">
-                    <div className="bg-slate-700/50 border border-white/5 rounded-2xl rounded-tl-sm p-4 w-16 flex items-center justify-center gap-1.5 h-[52px]">
-                      <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                      <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                      <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"></div>
+                  )}
+                  {chatMessages.map((msg) => (
+                    <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[85%] rounded-2xl p-4 text-sm leading-relaxed ${
+                        msg.role === 'user' 
+                          ? 'bg-emerald-600 text-white rounded-tr-sm' 
+                          : 'bg-zinc-700/50 text-zinc-200 border border-white/5 rounded-tl-sm'
+                      }`}>
+                        {msg.role === 'assistant' ? <ReactMarkdown>{msg.text}</ReactMarkdown> : msg.text}
+                      </div>
                     </div>
-                  </div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
+                  ))}
+                  {isChatting && (
+                    <div className="flex justify-start">
+                      <div className="bg-zinc-700/50 border border-white/5 rounded-2xl rounded-tl-sm p-4 w-16 flex items-center justify-center gap-1.5 h-[52px]">
+                        <div className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                        <div className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                        <div className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-bounce"></div>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={chatEndRef} />
+                </div>
+              </ScrollArea>
 
-              <div className="p-4 bg-slate-800/90 border-t border-white/10">
-                <form onSubmit={handleChat} className="relative">
-                  <input
+              <div className="p-4 bg-zinc-800/90 border-t border-white/10">
+                <form onSubmit={handleChat} className="relative flex gap-2">
+                  <Input
                     type="text"
                     placeholder="Ask about timestamps, concepts, etc..."
                     value={currentQuestion}
                     onChange={(e) => setCurrentQuestion(e.target.value)}
                     disabled={isChatting}
-                    className="w-full bg-slate-900 border border-white/10 rounded-xl py-3 pl-4 pr-12 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 disabled:opacity-50"
+                    className="w-full bg-zinc-900 border-white/10 rounded-xl py-5 pl-4 pr-12 text-sm text-white placeholder:text-zinc-500 focus-visible:ring-teal-500/50"
                   />
-                  <button 
+                  <Button 
                     type="submit" 
+                    size="icon"
                     disabled={isChatting || !currentQuestion.trim()}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 hover:text-purple-300 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 bg-teal-500/20 text-teal-400 hover:bg-teal-500/30 hover:text-teal-300 rounded-lg transition-colors border-none"
                   >
                     <Send className="w-4 h-4" />
-                  </button>
+                  </Button>
                 </form>
               </div>
-            </div>
+            </Card>
             
           </div>
         )}

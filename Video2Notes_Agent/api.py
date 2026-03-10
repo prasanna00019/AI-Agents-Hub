@@ -12,8 +12,10 @@ from transcriber import WhisperTranscriber
 from analyzer import ChunkAnalyzer
 from synthesizer import NotesSynthesizer
 from rag_engine import VideoRAGEngine
+from database import SessionLocal, VideoNoteCache, init_db
 
 dotenv.load_dotenv()
+init_db()
 
 app = FastAPI(title="VideoNotes API")
 
@@ -82,6 +84,25 @@ def process_video_task(task_id: str, request: ProcessRequest):
         rag.populate_database(analyzed_chunks, video_description)
         rag_engines[task_id] = rag
 
+        # 6. Cache into DB
+        if SessionLocal:
+            try:
+                db = SessionLocal()
+                new_cache = VideoNoteCache(
+                    url=request.url,
+                    provider=request.provider,
+                    start_time=request.start_time,
+                    end_time=request.end_time,
+                    title=video_title,
+                    description=video_description,
+                    notes=notes
+                )
+                db.add(new_cache)
+                db.commit()
+                db.close()
+            except Exception as e:
+                print(f"Warning: Failed to cache notes in DB: {e}")
+
         tasks[task_id]["notes"] = notes
         tasks[task_id]["status"] = "completed"
         tasks[task_id]["progress"] = "Done"
@@ -96,6 +117,38 @@ def process_video_task(task_id: str, request: ProcessRequest):
 
 @app.post("/api/process")
 async def process_video(request: ProcessRequest, background_tasks: BackgroundTasks):
+    # Check cache first
+    if SessionLocal:
+        try:
+            db = SessionLocal()
+            # Simple match by signature
+            cached = db.query(VideoNoteCache).filter_by(
+                url=request.url,
+                provider=request.provider,
+                start_time=request.start_time,
+                end_time=request.end_time
+            ).first()
+            if cached:
+                task_id = str(uuid.uuid4())
+                tasks[task_id] = {
+                    "status": "completed",
+                    "progress": "Loaded from cache",
+                    "notes": cached.notes,
+                    "video_title": cached.title,
+                    "video_description": cached.description
+                }
+                # To support RAG on cached responses, we'd need to re-embed or save the vector DB persistence token.
+                # For this iteration, we recreate empty RAG engine context or advise user.
+                # Here we just initialize a blank RAG so it doesn't 500 later, but RAG may lack chunk context unless re-analyzed.
+                rag = VideoRAGEngine(Config(), video_id=task_id)
+                rag.populate_database([], cached.description)
+                rag_engines[task_id] = rag
+                db.close()
+                return {"task_id": task_id}
+            db.close()
+        except:
+            pass
+
     task_id = str(uuid.uuid4())
     tasks[task_id] = {
         "status": "processing",
