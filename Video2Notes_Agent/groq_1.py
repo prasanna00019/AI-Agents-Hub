@@ -3,7 +3,7 @@ import json
 from groq import Groq
 
 # Initialize the Groq client
-client = Groq(api_key="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")
+client = Groq(api_key="")
 
 # Specify the path to the audio file
 filename = os.path.dirname(__file__) + "/test_audio.webm" # Replace with your audio file!
