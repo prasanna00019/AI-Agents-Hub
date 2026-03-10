@@ -140,8 +140,10 @@ async def process_video(request: ProcessRequest, background_tasks: BackgroundTas
                 # To support RAG on cached responses, we'd need to re-embed or save the vector DB persistence token.
                 # For this iteration, we recreate empty RAG engine context or advise user.
                 # Here we just initialize a blank RAG so it doesn't 500 later, but RAG may lack chunk context unless re-analyzed.
-                rag = VideoRAGEngine(Config(), video_id=task_id)
-                rag.populate_database([], cached.description)
+                config = Config()
+                config.llm_provider = cached.provider
+                rag = VideoRAGEngine(config, video_id=task_id)
+                rag.populate_from_cache(cached.notes, cached.description)
                 rag_engines[task_id] = rag
                 db.close()
                 return {"task_id": task_id}
@@ -169,10 +171,17 @@ async def get_status(task_id: str):
 
 @app.post("/api/chat")
 async def chat_with_video(request: ChatRequest):
-    if request.task_id not in rag_engines:
-        raise HTTPException(status_code=404, detail="Knowledge base not ready or task not found")
-    
-    engine = rag_engines[request.task_id]
-    answer = engine.ask_question(request.question)
-    
-    return {"answer": answer}
+    try:
+        if request.task_id not in rag_engines:
+            raise HTTPException(status_code=404, detail="Knowledge base not ready or task not found")
+        
+        engine = rag_engines[request.task_id]
+        answer = engine.ask_question(request.question)
+        
+        return {"answer": answer}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")

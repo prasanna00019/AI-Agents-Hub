@@ -61,13 +61,43 @@ class VideoRAGEngine:
                 ids=ids
             )
 
+    def populate_from_cache(self, notes: str, raw_description: str):
+        """Insert cached notes and description directly into ChromaDB to enable basic Q&A."""
+        documents = []
+        metadatas = []
+        ids = []
+
+        if raw_description:
+            documents.append(raw_description)
+            metadatas.append({"type": "description", "start": "00:00", "end": "00:00"})
+            ids.append(f"desc_{self.video_id}")
+
+        if notes:
+            # Simple chunking: split markdown mostly by headings or double newlines
+            chunks = [c.strip() for c in notes.split('\n\n') if len(c.strip()) > 10]
+            for i, chunk_text in enumerate(chunks):
+                documents.append(chunk_text)
+                metadatas.append({"type": "cached_note", "start": "00:00", "end": "00:00"})
+                ids.append(f"cached_{self.video_id}_{i}")
+
+        if documents:
+            self.collection.upsert(
+                documents=documents,
+                metadatas=metadatas,
+                ids=ids
+            )
+
     def ask_question(self, question: str, history: list = None) -> str:
         """Query the vector database and use the LLM to formulate an answer."""
         
         # 1. Retrieve most relevant chunks
+        n_results = min(3, self.collection.count())
+        if n_results == 0:
+            return "The video's context is currently empty (probably loaded from cache without vector data re-embedded). I cannot answer specific questions right now."
+            
         results = self.collection.query(
             query_texts=[question],
-            n_results=3  # Top 3 most relevant chunks
+            n_results=n_results  # Top 3 most relevant chunks or max available
         )
         
         if not results["documents"] or not results["documents"][0]:
@@ -79,8 +109,10 @@ class VideoRAGEngine:
             meta = results["metadatas"][0][i]
             if meta["type"] == "description":
                 context_texts.append(f"[Video Description]:\n{doc}")
+            elif meta.get("type") == "cached_note":
+                context_texts.append(f"[Video Notes Section]:\n{doc}")
             else:
-                context_texts.append(f"[Time: {meta['start']} - {meta['end']}]:\n{doc}")
+                context_texts.append(f"[Time: {meta.get('start', '00:00')} - {meta.get('end', '00:00')}]:\n{doc}")
                 
         context = "\n\n".join(context_texts)
         
