@@ -17,6 +17,8 @@ function App() {
   // Form State
   const [url, setUrl] = useState('');
   const [provider, setProvider] = useState('gemini');
+  const [whisperProvider, setWhisperProvider] = useState('local');
+  const [groqApiKey, setGroqApiKey] = useState('');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [showSettings, setShowSettings] = useState(false);
@@ -136,7 +138,9 @@ function App() {
         url,
         provider,
         start_time: startTime || null,
-        end_time: endTime || null
+        end_time: endTime || null,
+        whisper_provider: whisperProvider,
+        groq_api_key: groqApiKey || null
       };
       
       const res = await axios.post(`${API_BASE}/process`, payload);
@@ -230,42 +234,74 @@ function App() {
 
                   {showSettings && (
                     <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-top-2 duration-300">
-                      <div className="space-y-2">
-                        <Label className="uppercase tracking-wider text-zinc-400 text-xs">AI Model</Label>
-                        <Select value={provider} onValueChange={setProvider} disabled={status === 'processing'}>
-                          <SelectTrigger className="w-full bg-zinc-900 border-white/10 text-zinc-100 h-11">
-                            <SelectValue placeholder="Select Model" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-zinc-900 border-white/10 text-zinc-100">
-                            <SelectItem value="gemini">Google Gemini 2.5 Flash</SelectItem>
-                            <SelectItem value="anthropic">Anthropic Claude 3.5 Sonnet</SelectItem>
-                            <SelectItem value="ollama">Ollama (Local)</SelectItem>
-                          </SelectContent>
-                        </Select>
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label className="uppercase tracking-wider text-zinc-400 text-xs">Analysis AI Model</Label>
+                          <Select value={provider} onValueChange={setProvider} disabled={status === 'processing'}>
+                            <SelectTrigger className="w-full bg-zinc-900 border-white/10 text-zinc-100 h-11">
+                              <SelectValue placeholder="Select Model" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-zinc-900 border-white/10 text-zinc-100">
+                              <SelectItem value="gemini">Google Gemini 2.5 Flash</SelectItem>
+                              <SelectItem value="anthropic">Anthropic Claude 3.5 Sonnet</SelectItem>
+                              <SelectItem value="ollama">Ollama (Local)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="uppercase tracking-wider text-zinc-400 text-xs">Audio Transcription Engine</Label>
+                          <Select value={whisperProvider} onValueChange={setWhisperProvider} disabled={status === 'processing'}>
+                            <SelectTrigger className="w-full bg-zinc-900 border-white/10 text-zinc-100 h-11">
+                              <SelectValue placeholder="Select Engine" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-zinc-900 border-white/10 text-zinc-100">
+                              <SelectItem value="local">Local Whisper (CPU/GPU)</SelectItem>
+                              <SelectItem value="groq">Groq Faster Whisper (Cloud API)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                       
-                      <div className="space-y-2">
-                        <Label className="flex items-center gap-2 uppercase tracking-wider text-zinc-400 text-xs">
-                            <Clock className="w-3 h-3" /> Timestamp Range (Optional)
-                        </Label>
-                        <div className="flex items-center gap-2">
-                          <Input
-                            type="text"
-                            placeholder="00:00"
-                            className="bg-zinc-900 border-white/10 text-center h-11"
-                            value={startTime}
-                            onChange={e => setStartTime(e.target.value)}
-                          />
-                          <span className="text-zinc-500">to</span>
-                          <Input
-                            type="text"
-                            placeholder="05:30"
-                            className="bg-zinc-900 border-white/10 text-center h-11"
-                            value={endTime}
-                            onChange={e => setEndTime(e.target.value)}
-                          />
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label className="flex items-center gap-2 uppercase tracking-wider text-zinc-400 text-xs">
+                              <Clock className="w-3 h-3" /> Timestamp Range (Optional)
+                          </Label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="text"
+                              placeholder="00:00"
+                              className="bg-zinc-900 border-white/10 text-center h-11"
+                              value={startTime}
+                              onChange={e => setStartTime(e.target.value)}
+                            />
+                            <span className="text-zinc-500">to</span>
+                            <Input
+                              type="text"
+                              placeholder="05:30"
+                              className="bg-zinc-900 border-white/10 text-center h-11"
+                              value={endTime}
+                              onChange={e => setEndTime(e.target.value)}
+                            />
+                          </div>
+                          <p className="text-[10px] text-zinc-500 mt-1">Use MM:SS format to process only a specific part of the video.</p>
                         </div>
-                        <p className="text-[10px] text-zinc-500 mt-1">Use MM:SS format to process only a specific part of the video.</p>
+
+                        {whisperProvider === 'groq' && (
+                          <div className="space-y-2 animate-in fade-in duration-300">
+                            <Label className="uppercase tracking-wider text-teal-400 text-xs shadow-sm">Groq API Key (Required for Groq Whisper)</Label>
+                            <Input
+                                type="password"
+                                placeholder="gsk_..."
+                                className="bg-zinc-900 border-teal-500/30 text-zinc-100 h-11 focus-visible:ring-teal-500/50"
+                                value={groqApiKey}
+                                onChange={e => setGroqApiKey(e.target.value)}
+                                disabled={status === 'processing'}
+                                required={whisperProvider === 'groq'}
+                            />
+                            <p className="text-[10px] text-zinc-500 mt-1">Extremely fast cloud transcription. Accepts up to ~25MB files.</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}

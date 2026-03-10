@@ -38,6 +38,8 @@ class ProcessRequest(BaseModel):
     provider: str = "gemini"  # anthropic, gemini, ollama
     start_time: Optional[str] = None
     end_time: Optional[str] = None
+    whisper_provider: str = "local" # local, groq
+    groq_api_key: Optional[str] = None
 
 class ChatRequest(BaseModel):
     task_id: str
@@ -53,6 +55,13 @@ def process_video_task(task_id: str, request: ProcessRequest):
         config.llm_provider = request.provider
         config.start_time = request.start_time
         config.end_time = request.end_time
+        config.whisper_provider = request.whisper_provider
+        
+        if request.groq_api_key:
+            config.groq_api_key = request.groq_api_key
+            
+        if request.whisper_provider == "groq":
+            config.whisper_model = "whisper-large-v3-turbo" # Ensure Groq model is used
         
         # 1. Extract
         tasks[task_id]["progress"] = "Extracting audio and metadata..."

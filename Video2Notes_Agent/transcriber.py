@@ -82,12 +82,64 @@ class WhisperTranscriber:
 
     def _run_whisper(self, audio_path: str) -> List[TranscriptSegment]:
         """Run Whisper and return raw segments with timestamps."""
+        if self.config.whisper_provider == "groq":
+            return self._run_groq_whisper(audio_path)
+        
         try:
             return self._run_faster_whisper(audio_path)
         except ImportError:
             if self.config.verbose:
                 print("   (faster-whisper not found, using openai-whisper)")
             return self._run_openai_whisper(audio_path)
+            
+    def _run_groq_whisper(self, audio_path: str) -> List[TranscriptSegment]:
+        """Use Groq's high-speed Whisper API."""
+        from groq import Groq
+        import os
+        
+        if not self.config.groq_api_key:
+            raise ValueError("Groq API key is missing. Cannot use Groq for transcription.")
+            
+        client = Groq(api_key=self.config.groq_api_key)
+        
+        # Determine the file size. If > 24MB, warn user about potential failure,
+        # but the groq limits usually accept ~25MB.
+        file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+        if file_size_mb > 24 and self.config.verbose:
+            print(f"   Warning: Audio file ({file_size_mb:.1f}MB) is near Groq's 25MB limit.")
+            
+        if self.config.verbose:
+            print(f"   Sending to Groq API ({self.config.whisper_model})...")
+            
+        with open(audio_path, "rb") as file:
+            transcription = client.audio.transcriptions.create(
+              file=(os.path.basename(audio_path), file.read()),
+              model=self.config.whisper_model if "groq" in self.config.whisper_provider else "whisper-large-v3-turbo", 
+              response_format="verbose_json",
+              timestamp_granularities=["segment"],
+              language=self.config.language,
+              temperature=0.0
+            )
+            
+        result = []
+        # Support dict access or attribute access based on Groq SDK version parsing
+        segments = getattr(transcription, "segments", None)
+        if segments is None and isinstance(transcription, dict):
+            segments = transcription.get("segments", [])
+            
+        for seg in segments:
+            # Handle both object attributes and dict logic
+            text = getattr(seg, "text", None) or seg.get("text", "")
+            start = getattr(seg, "start", None) or seg.get("start", 0.0)
+            end = getattr(seg, "end", None) or seg.get("end", 0.0)
+            
+            result.append(TranscriptSegment(
+                text=text.strip(),
+                start=start,
+                end=end,
+            ))
+            
+        return result
 
     def _run_faster_whisper(self, audio_path: str) -> List[TranscriptSegment]:
         """Use faster-whisper (CTranslate2 backend - 4x faster, less memory)."""
