@@ -11,7 +11,7 @@ import json
 from typing import List, Dict
 from datetime import timedelta
 
-import anthropic
+import litellm
 
 from config import Config
 from analyzer import AnalyzedChunk
@@ -22,7 +22,6 @@ class NotesSynthesizer:
 
     def __init__(self, config: Config):
         self.config = config
-        self.client = anthropic.Anthropic()
 
     def synthesize(
         self,
@@ -89,13 +88,13 @@ Rules:
 
 Output clean Markdown only. Start with a `# {video_title}` heading."""
 
-        response = self.client.messages.create(
-            model=self.config.claude_model,
+        response = litellm.completion(
+            model=self.config.current_model,
             max_tokens=self.config.max_tokens_synthesis,
             messages=[{"role": "user", "content": prompt}],
         )
 
-        notes = response.content[0].text.strip()
+        notes = response.choices[0].message.content.strip()
 
         # Append metadata footer
         pruned = sum(1 for _ in range(len(chunks)))  # Already filtered to CORE

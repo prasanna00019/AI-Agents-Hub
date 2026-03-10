@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import tempfile
+import json
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -24,9 +25,9 @@ class AudioExtractor:
 
     def extract(
         self, url: Optional[str] = None, file_path: Optional[str] = None
-    ) -> Tuple[str, str]:
+    ) -> Tuple[str, str, str]:
         """
-        Extract audio and return (audio_path, video_title).
+        Extract audio and return (audio_path, video_title, description).
         """
         if url:
             return self._extract_from_url(url)
@@ -35,31 +36,41 @@ class AudioExtractor:
         else:
             raise ValueError("Either url or file_path must be provided")
 
-    def _extract_from_url(self, url: str) -> Tuple[str, str]:
+    def _extract_from_url(self, url: str) -> Tuple[str, str, str]:
         """Download audio from YouTube/URL using yt-dlp."""
         self._check_dependency("yt-dlp", "pip install yt-dlp")
 
-        output_template = os.path.join(self.config.temp_dir, "%(title)s.%(ext)s")
-
-        # First get the title
+        # Get metadata (title, description)
         result = subprocess.run(
-            ["yt-dlp", "--get-title", url],
+            ["yt-dlp", "--dump-json", "--no-playlist", url],
             capture_output=True, text=True, check=True
         )
-        title = result.stdout.strip() or "video"
+        try:
+            metadata = json.loads(result.stdout.strip().split('\n')[0])
+            title = metadata.get("title", "video")
+            description = metadata.get("description", "")
+        except:
+            title = "video"
+            description = ""
 
         # Download audio only as mp3
         audio_path = os.path.join(self.config.temp_dir, "audio.mp3")
+        ytdlp_args = [
+            "yt-dlp",
+            "--extract-audio",
+            "--audio-format", "mp3",
+            "--audio-quality", "0",
+            "--output", audio_path,
+            "--no-playlist",
+        ]
+
+        if self.config.start_time and self.config.end_time:
+            ytdlp_args.extend(["--download-sections", f"*{self.config.start_time}-{self.config.end_time}"])
+
+        ytdlp_args.append(url)
+
         subprocess.run(
-            [
-                "yt-dlp",
-                "--extract-audio",
-                "--audio-format", "mp3",
-                "--audio-quality", "0",
-                "--output", audio_path,
-                "--no-playlist",
-                url,
-            ],
+            ytdlp_args,
             check=True,
             capture_output=not self.config.verbose,
         )
@@ -72,9 +83,9 @@ class AudioExtractor:
             audio_path = str(files[0])
 
         self._temp_files.append(audio_path)
-        return audio_path, title
+        return audio_path, title, description
 
-    def _extract_from_file(self, file_path: str) -> Tuple[str, str]:
+    def _extract_from_file(self, file_path: str) -> Tuple[str, str, str]:
         """Extract audio from a local video file using FFmpeg."""
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
@@ -84,30 +95,37 @@ class AudioExtractor:
 
         # If it's already audio, return as-is
         audio_extensions = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac"}
-        if ext in audio_extensions:
-            return file_path, title
+        if ext in audio_extensions and not (self.config.start_time or self.config.end_time):
+            return file_path, title, ""
 
         # Extract audio with FFmpeg
         self._check_dependency("ffmpeg", "brew install ffmpeg  OR  apt install ffmpeg")
         audio_path = os.path.join(self.config.temp_dir, f"{title}_audio.mp3")
 
+        ffmpeg_args = [
+            "ffmpeg", "-i", file_path,
+            "-vn",                    # No video
+            "-acodec", "libmp3lame",  # MP3 codec
+            "-ar", "16000",           # 16kHz sample rate (optimal for Whisper)
+            "-ac", "1",              # Mono
+            "-ab", "64k",            # 64kbps (sufficient for speech)
+        ]
+
+        if self.config.start_time:
+            ffmpeg_args.extend(["-ss", self.config.start_time])
+        if self.config.end_time:
+            ffmpeg_args.extend(["-to", self.config.end_time])
+            
+        ffmpeg_args.extend(["-y", audio_path])
+
         subprocess.run(
-            [
-                "ffmpeg", "-i", file_path,
-                "-vn",                    # No video
-                "-acodec", "libmp3lame",  # MP3 codec
-                "-ar", "16000",           # 16kHz sample rate (optimal for Whisper)
-                "-ac", "1",              # Mono
-                "-ab", "64k",            # 64kbps (sufficient for speech)
-                "-y",                    # Overwrite output
-                audio_path,
-            ],
+            ffmpeg_args,
             check=True,
             capture_output=not self.config.verbose,
         )
 
         self._temp_files.append(audio_path)
-        return audio_path, title
+        return audio_path, title, ""
 
     def _check_dependency(self, tool: str, install_hint: str):
         """Check if a CLI tool is available."""

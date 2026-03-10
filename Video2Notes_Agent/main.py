@@ -99,7 +99,7 @@ Examples:
         # Step 1: Extract audio
         print("📥 Step 1/4: Extracting audio...")
         extractor = AudioExtractor(config)
-        audio_path, video_title = extractor.extract(
+        audio_path, video_title, video_description = extractor.extract(
             url=args.url, file_path=args.file
         )
         print(f"   ✓ Audio ready: {video_title}")
@@ -114,7 +114,7 @@ Examples:
         # Step 3: Analyze chunks intelligently
         print(f"\n🧠 Step 3/4: Analyzing {len(chunks)} chunks with AI...")
         analyzer = ChunkAnalyzer(config)
-        analyzed_chunks = analyzer.analyze_all(chunks, video_title)
+        analyzed_chunks = analyzer.analyze_all(chunks, video_title, video_description)
 
         core_count = sum(1 for c in analyzed_chunks if c.classification == "CORE")
         pruned_count = len(analyzed_chunks) - core_count

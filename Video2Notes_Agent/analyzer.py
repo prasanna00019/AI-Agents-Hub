@@ -16,7 +16,7 @@ import time
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-import anthropic
+import litellm
 
 from config import Config
 from transcriber import TranscriptChunk
@@ -67,12 +67,11 @@ class ChunkAnalyzer:
 
     def __init__(self, config: Config):
         self.config = config
-        self.client = anthropic.Anthropic()
         self._rolling_context = ""   # Grows as we process chunks
         self._discovered_topics = [] # Topic headers found so far
 
     def analyze_all(
-        self, chunks: List[TranscriptChunk], video_title: str
+        self, chunks: List[TranscriptChunk], video_title: str, video_description: str = ""
     ) -> List[AnalyzedChunk]:
         """
         Analyze all chunks. Maintains rolling context across the video.
@@ -82,6 +81,8 @@ class ChunkAnalyzer:
 
         # First pass: get a quick overview of the video from the first chunk
         self._rolling_context = f'Video title: "{video_title}"\n'
+        if video_description:
+            self._rolling_context += f'Video Description (Context):\n{video_description[:1000]}...\n\n'
 
         for i, chunk in enumerate(chunks):
             if self.config.verbose:
@@ -181,13 +182,15 @@ class ChunkAnalyzer:
 }}"""
 
         try:
-            response = self.client.messages.create(
-                model=self.config.claude_model,
+            response = litellm.completion(
+                model=self.config.current_model,
                 max_tokens=self.config.max_tokens_per_chunk,
                 messages=[{"role": "user", "content": prompt}],
+                # We can add response_format={"type": "json_object"} if provider supports it, 
+                # but standard prompting usually works.
             )
 
-            raw = response.content[0].text.strip()
+            raw = response.choices[0].message.content.strip()
             # Strip markdown fences if present
             raw = raw.replace("```json", "").replace("```", "").strip()
             data = json.loads(raw)

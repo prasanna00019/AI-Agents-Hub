@@ -1,0 +1,21 @@
+[project]
+name = "video2notes-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=0.84.0",
+    "chromadb>=1.5.4",
+    "fastapi>=0.135.1",
+    "faster-whisper>=1.2.1",
+    "google-generativeai>=0.8.6",
+    "litellm>=1.82.0",
+    "openai-whisper>=20250625",
+    "pydantic>=2.12.5",
+    "python-dotenv>=1.2.2",
+    "python-multipart>=0.0.22",
+    "tqdm>=4.67.3",
+    "uvicorn>=0.41.0",
+    "yt-dlp>=2026.3.3",
+]
