@@ -19,7 +19,7 @@ class Config:
 
     # Transcription
     whisper_provider: str = "local"      # local / groq
-    whisper_model: str = "base"          # local: tiny/base/small/medium/large-v2/large-v3, groq: whisper-large-v3-turbo / whisper-large-v3
+    whisper_model: str = "tiny"          # local: tiny/base/small/medium/large-v2/large-v3, groq: whisper-large-v3-turbo / whisper-large-v3
     groq_api_key: Optional[str] = os.environ.get("GROQ_API_KEY")
     language: Optional[str] = None       # None = auto-detect
 

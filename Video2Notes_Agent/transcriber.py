@@ -93,7 +93,7 @@ class WhisperTranscriber:
             return self._run_openai_whisper(audio_path)
             
     def _run_groq_whisper(self, audio_path: str) -> List[TranscriptSegment]:
-        """Use Groq's high-speed Whisper API."""
+        """Use Groq's high-speed Whisper API with built-in chunking for large files."""
         from groq import Groq
         import os
         
@@ -101,44 +101,119 @@ class WhisperTranscriber:
             raise ValueError("Groq API key is missing. Cannot use Groq for transcription.")
             
         client = Groq(api_key=self.config.groq_api_key)
-        
-        # Determine the file size. If > 24MB, warn user about potential failure,
-        # but the groq limits usually accept ~25MB.
         file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
-        if file_size_mb > 24 and self.config.verbose:
-            print(f"   Warning: Audio file ({file_size_mb:.1f}MB) is near Groq's 25MB limit.")
+        
+        # If the file is > 24MB, we must chunk it with pydub before sending
+        if file_size_mb > 24:
+            if self.config.verbose:
+                print(f"   Audio file is {file_size_mb:.1f}MB (over Groq 25MB limit). Chunking audio...")
+            return self._run_groq_whisper_chunked(client, audio_path)
             
         if self.config.verbose:
             print(f"   Sending to Groq API ({self.config.whisper_model})...")
             
-        with open(audio_path, "rb") as file:
-            transcription = client.audio.transcriptions.create(
-              file=(os.path.basename(audio_path), file.read()),
-              model=self.config.whisper_model if "groq" in self.config.whisper_provider else "whisper-large-v3-turbo", 
-              response_format="verbose_json",
-              timestamp_granularities=["segment"],
-              language=self.config.language,
-              temperature=0.0
-            )
+        transcription = self._execute_groq_api_with_retry(client, audio_path)
             
+        return self._parse_groq_segments(transcription)
+
+    def _run_groq_whisper_chunked(self, client, audio_path: str) -> List[TranscriptSegment]:
+        import os
+        import subprocess
+        import math
+        
+        # Get total duration in seconds using ffprobe
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
+            capture_output=True, text=True, check=True
+        )
+        total_duration = float(result.stdout.strip())
+        
+        # Groq limit is 25MB. At 64kbps, 20 minutes is ~10MB.
+        chunk_length_seconds = 20 * 60 # 20 minutes
+        num_chunks = math.ceil(total_duration / chunk_length_seconds)
+        
+        all_segments = []
+        for i in range(num_chunks):
+            chunk_file = f"{audio_path}_chunk_{i}.mp3"
+            start_time = i * chunk_length_seconds
+            
+            if self.config.verbose:
+                print(f"   Splitting chunk {i+1}/{num_chunks} with FFmpeg...")
+                
+            subprocess.run([
+                "ffmpeg", "-y", "-i", audio_path,
+                "-ss", str(start_time),
+                "-t", str(chunk_length_seconds),
+                "-acodec", "copy",
+                chunk_file
+            ], capture_output=not self.config.verbose, check=True)
+            
+            if self.config.verbose:
+                print(f"   Sending chunk {i+1}/{num_chunks} to Groq API...")
+                
+            transcription = self._execute_groq_api_with_retry(client, chunk_file)
+            
+            segments = self._parse_groq_segments(transcription, offset=float(start_time))
+            all_segments.extend(segments)
+            
+            os.remove(chunk_file)
+            
+        return all_segments
+
+    def _execute_groq_api_with_retry(self, client, file_path: str):
+        import time
+        import re
+        import os
+        
+        retry_count = 0
+        while True:
+            try:
+                with open(file_path, "rb") as file:
+                    return client.audio.transcriptions.create(
+                      file=(os.path.basename(file_path), file.read()),
+                      model=self.config.whisper_model if "groq" in self.config.whisper_provider else "whisper-large-v3-turbo", 
+                      response_format="verbose_json",
+                      timestamp_granularities=["segment"],
+                      language=self.config.language,
+                      temperature=0.0
+                    )
+            except Exception as e:
+                err_msg = str(e).lower()
+                if "429" in err_msg or "rate limit" in err_msg:
+                    wait_time = 60 # Default fallback
+                    # Try to parse "Please try again in 2m35.5s"
+                    match = re.search(r'in\s+(?:(\d+)m)?(?:([\d.]+)s)?', err_msg)
+                    if match:
+                        m = float(match.group(1)) if match.group(1) else 0.0
+                        s = float(match.group(2)) if match.group(2) else 0.0
+                        if m > 0 or s > 0:
+                            wait_time = m * 60 + s + 2.0  # Buffer
+                    else:
+                        wait_time = min(300, 30 * (2 ** retry_count)) # Exponential
+                    
+                    print(f"   [Groq Rate Limit] Hitting API limit. Waiting {wait_time:.1f}s before retrying...")
+                        
+                    time.sleep(wait_time)
+                    retry_count += 1
+                else:
+                    raise e
+
+    def _parse_groq_segments(self, transcription, offset: float = 0.0) -> List[TranscriptSegment]:
         result = []
-        # Support dict access or attribute access based on Groq SDK version parsing
         segments = getattr(transcription, "segments", None)
         if segments is None and isinstance(transcription, dict):
             segments = transcription.get("segments", [])
             
         for seg in segments:
-            # Handle both object attributes and dict logic
             text = getattr(seg, "text", None) or seg.get("text", "")
             start = getattr(seg, "start", None) or seg.get("start", 0.0)
             end = getattr(seg, "end", None) or seg.get("end", 0.0)
             
             result.append(TranscriptSegment(
                 text=text.strip(),
-                start=start,
-                end=end,
+                start=start + offset,
+                end=end + offset,
             ))
-            
         return result
 
     def _run_faster_whisper(self, audio_path: str) -> List[TranscriptSegment]:
