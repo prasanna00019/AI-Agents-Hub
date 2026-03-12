@@ -84,6 +84,10 @@ a {
   scrollbar-gutter: stable both-edges;
 }
 
+.scrollbar-surface > * {
+  min-width: 0;
+}
+
 .markdown-body {
   color: var(--ink);
   font-size: 1rem;
@@ -258,12 +262,13 @@ a {
 
 .note-export-sheet {
   position: fixed;
-  left: -100000px;
+  left: -200vw;
   top: 0;
   width: 900px;
   background: #ffffff;
   color: #111827;
   padding: 40px 44px;
+  pointer-events: none;
 }
 
 .note-export-sheet h1 {
@@ -280,6 +285,10 @@ a {
 }
 
 @media (max-width: 768px) {
+  .note-export-sheet {
+    width: 760px;
+  }
+
   .markdown-body h1 {
     font-size: 2rem;
   }

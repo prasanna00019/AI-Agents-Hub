@@ -22,10 +22,10 @@ const ProcessSection = ({
             Video to structured notes
           </div>
           <h2 className="max-w-4xl text-5xl font-black tracking-tight text-slate-900 sm:text-6xl lg:text-7xl">
-            Cleaner notes, reliable exports, and no more hidden backend settings.
+            Turn long videos into study-ready notes you can search, save, and revisit.
           </h2>
           <p className="max-w-3xl text-lg leading-relaxed text-slate-600 sm:text-xl">
-            Paste a video URL, choose the transcription and note settings in the UI, optionally connect your own Postgres database, and reopen any saved note later for RAG chat.
+            Video2Notes extracts speech, organizes the important ideas into readable markdown notes, saves them to your database if you want, and lets you ask follow-up questions with RAG.
           </p>
         </div>
 
@@ -110,20 +110,19 @@ const ProcessSection = ({
 
       <aside className="space-y-4 pt-8">
         <div className="rounded-[28px] border border-slate-200/80 bg-white/80 p-6 shadow-[0_20px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-slate-500">What changed</p>
-          <ul className="mt-4 space-y-3 text-sm leading-relaxed text-slate-600">
-            <li>PDF export now renders from a clean print layout instead of the live app surface.</li>
-            <li>Markdown notes render with real heading, list, code, and blockquote styling.</li>
-            <li>Whisper settings and database URL are now controlled entirely from the frontend.</li>
-            <li>The Library view can reopen saved notes and restore a RAG chat session.</li>
-          </ul>
+          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-slate-500">What this app does</p>
+          <div className="mt-4 space-y-3 text-sm leading-relaxed text-slate-600">
+            <p>Process a video URL into structured markdown notes with timestamps, topic grouping, and action items.</p>
+            <p>Choose your LLM, whisper engine, note detail level, and transcription settings directly from the UI.</p>
+            <p>Connect your own Postgres database to cache notes and reopen them later from the library.</p>
+          </div>
         </div>
 
         <div className="rounded-[28px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(15,23,42,0.95),rgba(15,118,110,0.88))] p-6 text-white shadow-[0_24px_70px_rgba(15,23,42,0.16)]">
-          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-cyan-100">Recommended setup</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-cyan-100">Workflow</p>
           <div className="mt-4 space-y-3 text-sm leading-relaxed text-slate-100/90">
-            <p>Set your database URL before processing if you want caching and the library to work immediately.</p>
-            <p>For cloud transcription, switch to Groq and pick a Groq Whisper model directly in settings.</p>
+            <p>Generate notes from a video, review the markdown in a scrollable reader, and save a PDF from the print dialog.</p>
+            <p>When a database URL is configured, every saved note can be reopened and queried again from the library view.</p>
           </div>
         </div>
       </aside>

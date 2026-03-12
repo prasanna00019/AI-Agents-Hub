@@ -8,11 +8,10 @@ const ChatSection = ({
   setCurrentQuestion, 
   onSendMessage, 
   isChatting, 
-  chatEndRef,
-  taskId
+  chatEndRef
 }) => {
   return (
-    <section className="lg:col-span-4 sticky top-24 flex h-[calc(100vh-8rem)] min-h-[36rem] flex-col overflow-hidden rounded-[30px] border border-white/80 bg-[rgba(255,255,255,0.86)] shadow-[0_24px_70px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+    <section className="lg:col-span-4 sticky top-24 flex h-[calc(100vh-8rem)] min-h-[30rem] flex-col overflow-hidden rounded-[30px] border border-white/80 bg-[rgba(255,255,255,0.86)] shadow-[0_24px_70px_rgba(15,23,42,0.08)] backdrop-blur-xl max-lg:h-[32rem]">
       <header className="border-b border-slate-200 px-6 py-5">
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-900 text-white">

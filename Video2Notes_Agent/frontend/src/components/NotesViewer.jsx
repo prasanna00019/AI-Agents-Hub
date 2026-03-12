@@ -14,13 +14,23 @@ const NotesViewer = ({ videoTitle, videoDescription, notes, onDownloadMarkdown, 
                   <FileText className="h-5 w-5" />
                 </div>
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-slate-500">Rendered notes</p>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-slate-500">Notes</p>
                   <h2 className="mt-1 break-words text-3xl font-black text-slate-900">{videoTitle}</h2>
                 </div>
               </div>
-              <p className="max-w-3xl text-sm leading-relaxed text-slate-600">
-                {videoDescription || 'Structured notes generated from the video and prepared for export.'}
-              </p>
+              {videoDescription ? (
+                <details className="group max-w-3xl rounded-2xl border border-slate-200 bg-slate-50/85 px-4 py-3 text-sm text-slate-600">
+                  <summary className="cursor-pointer list-none font-semibold text-slate-800">
+                    <span className="inline-flex items-center gap-2">
+                      Video description
+                      <span className="text-xs font-medium text-slate-500 transition-transform group-open:rotate-180">v</span>
+                    </span>
+                  </summary>
+                  <p className="mt-3 whitespace-pre-wrap leading-relaxed text-slate-600">
+                    {videoDescription}
+                  </p>
+                </details>
+              ) : null}
             </div>
 
             <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -38,20 +48,20 @@ const NotesViewer = ({ videoTitle, videoDescription, notes, onDownloadMarkdown, 
                 className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800"
               >
                 <Download className="h-4 w-4" />
-                PDF
+                Save PDF
               </button>
             </div>
           </div>
 
           <div className="mt-6 rounded-[26px] border border-slate-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(248,250,252,0.96))] p-5 sm:p-7">
-            <MarkdownRenderer content={notes} />
+            <div className="scrollbar-surface max-h-[70vh] overflow-y-auto pr-2 sm:pr-3">
+              <MarkdownRenderer content={notes} />
+            </div>
           </div>
         </section>
       </div>
 
-      <div ref={exportRef} className="note-export-sheet" aria-hidden="true">
-        <h1>{videoTitle}</h1>
-        {videoDescription ? <p className="note-export-description">{videoDescription}</p> : null}
+      <div ref={exportRef} className="note-export-sheet">
         <MarkdownRenderer content={notes} variant="print" />
       </div>
     </>
