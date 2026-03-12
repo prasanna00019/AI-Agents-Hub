@@ -21,6 +21,14 @@ const attachTimestampLinks = (notes, url) => {
   });
 };
 
+const escapeHtml = (value) =>
+  (value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
 const PRINT_STYLES = `
   :root {
     color-scheme: light;
@@ -55,6 +63,44 @@ const PRINT_STYLES = `
     color: #475569;
     font-size: 14px;
     line-height: 1.7;
+  }
+
+  .print-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 0 0 20px;
+    padding: 14px 18px;
+    border: 1px solid #dbe3ea;
+    border-radius: 16px;
+    background: rgba(248, 250, 252, 0.96);
+    backdrop-filter: blur(8px);
+  }
+
+  .print-toolbar p {
+    margin: 0;
+    color: #475569;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .print-toolbar button {
+    border: 0;
+    border-radius: 999px;
+    background: #0f172a;
+    color: #ffffff;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .print-toolbar button:hover {
+    background: #1e293b;
   }
 
   .markdown-body {
@@ -172,46 +218,45 @@ const NotesWorkspace = ({
       return;
     }
 
-    const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=1100,height=900');
-    if (!printWindow) {
-      return;
-    }
-
     const title = data?.video_title || 'Notes';
     const description = data?.video_description
-      ? `<p class="print-description">${data.video_description.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`
+      ? `<p class="print-description">${escapeHtml(data.video_description)}</p>`
       : '';
 
-    printWindow.document.open();
-    printWindow.document.write(`
+    const html = `
       <!doctype html>
       <html>
         <head>
           <meta charset="utf-8" />
-          <title>${title}</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title>${escapeHtml(title)}</title>
           <style>${PRINT_STYLES}</style>
         </head>
         <body>
           <div class="print-shell">
-            <h1>${title}</h1>
+            <div class="print-toolbar">
+              <p>Use your browser print dialog and choose <strong>Save as PDF</strong>.</p>
+              <button type="button" onclick="window.print()">Print / Save PDF</button>
+            </div>
+            <h1>${escapeHtml(title)}</h1>
             ${description}
             ${exportRef.current.innerHTML}
           </div>
         </body>
       </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
+    `;
 
-    const runPrint = () => {
-      printWindow.print();
-    };
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const blobUrl = URL.createObjectURL(blob);
+    const previewWindow = window.open(blobUrl, '_blank');
 
-    if (printWindow.document.readyState === 'complete') {
-      runPrint();
-    } else {
-      printWindow.onload = runPrint;
+    if (!previewWindow) {
+      URL.revokeObjectURL(blobUrl);
+      return;
     }
+
+    previewWindow.focus();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
   };
 
   return (
