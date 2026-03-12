@@ -19,13 +19,14 @@ class Config:
 
     # Transcription
     whisper_provider: str = "local"      # local / groq
-    whisper_model: str = "tiny"          # local: tiny/base/small/medium/large-v2/large-v3, groq: whisper-large-v3-turbo / whisper-large-v3
+    whisper_model: Optional[str] = None   # Selected at runtime; falls back based on provider
     groq_api_key: Optional[str] = os.environ.get("GROQ_API_KEY")
+    hf_token: Optional[str] = os.environ.get("HF_TOKEN")
     language: Optional[str] = None       # None = auto-detect
 
     # Intelligence
-    detail_level: str = "medium"         # low / medium / high
-    keep_qa: bool = False                # Include Q&A sections
+    detail_level: str = "high"         # low / medium / high
+    keep_qa: bool = True            # Include Q&A sections
     keep_examples: bool = True           # Keep examples and analogies
     include_timestamps: bool = True      # Add [MM:SS] timestamps to notes
 
@@ -38,12 +39,20 @@ class Config:
     anthropic_model: str = "claude-3-5-sonnet-latest"
     gemini_model: str = "gemini-2.5-flash"
     ollama_model: str = "gpt-oss:120b-cloud"
+    ollama_base_url: Optional[str] = os.environ.get("OLLAMA_API_BASE")
     
     max_tokens_per_chunk: int = 800
     max_tokens_synthesis: int = 4000
 
     # Internal
     temp_dir: str = os.path.join(tempfile.gettempdir(), "video_notes")
+
+    def resolved_whisper_model(self) -> str:
+        if self.whisper_model:
+            return self.whisper_model
+        if self.whisper_provider == "groq":
+            return "whisper-large-v3-turbo"
+        return "base"
 
     @property
     def current_model(self) -> str:
