@@ -62,7 +62,13 @@ function App() {
   const [generatingDay, setGeneratingDay] = useState(false)
   const [agentLogs, setAgentLogs] = useState([])
 
+  // Calendar day detail modal (separate from override modal)
+  const [dayDetailDate, setDayDetailDate] = useState('')
+
   const selectedChannel = channels.find(c => c.id === selectedChannelId)
+
+  // Derived: find review item for the calendar day detail
+  const dayDetailItem = reviewQueue.find(r => r.date === dayDetailDate) || null
 
   const feedback = useCallback((message, tone = 'info') => {
     setNotice({ message, tone })
@@ -302,16 +308,47 @@ function App() {
     } catch (e) { feedback(e.message, 'error') }
   }
 
+  // Calendar day detail: save status from the day detail modal
+  const saveDayDetailStatus = async (newStatus) => {
+    if (!dayDetailItem) return
+    try {
+      await callApi(`/api/v1/review-queue/${dayDetailItem.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: newStatus })
+      })
+      await loadReviewQueue(selectedChannelId)
+      feedback(`Status updated to ${newStatus}`, 'success')
+    } catch (e) { feedback(e.message, 'error') }
+  }
+
+  // Calendar day click handler: opens detail modal if content exists, otherwise opens override form
+  const handleCalendarDayClick = (dayData) => {
+    const existingItem = reviewQueue.find(r => r.date === dayData.date)
+    if (existingItem) {
+      // Content exists — open day detail modal to view/edit status
+      setDayDetailDate(dayData.date)
+    } else {
+      // No content — open override form to plan
+      setOverrideForm({
+        date: dayData.date,
+        pillar: dayData.pillar || '',
+        topic: dayData.topic || '',
+        special_instructions: dayData.special_instructions || '',
+        mode: dayData.mode || 'pre_generated',
+      })
+    }
+  }
+
   // ── Render ──────────────────────────────────────────────────────────
   const inputClass = 'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100'
   const textareaClass = inputClass
   const darkInputClass = 'w-full rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2.5 text-sm text-white outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-900'
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 font-sans text-slate-800 antialiased">
+    <div className="h-screen overflow-hidden bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 font-sans text-slate-800 antialiased">
       <MobileHeader setMobileOpen={setMobileOpen} activeView={activeView} />
 
-      <div className="flex min-h-screen gap-0 lg:gap-5 lg:p-4">
+      <div className="flex h-screen gap-0 lg:gap-5 lg:p-4">
         <Sidebar
           activeView={activeView} setActiveView={setActiveView}
           channels={channels} selectedChannelId={selectedChannelId}
@@ -320,7 +357,8 @@ function App() {
           isMobileOpen={isMobileOpen} setMobileOpen={setMobileOpen}
         />
 
-        <main className="min-w-0 flex-1 space-y-5 px-4 py-5 lg:px-0 lg:py-0">
+        {/* Main content area — full height with overflow scroll */}
+        <main className="min-w-0 flex-1 overflow-y-auto space-y-5 px-4 py-5 lg:px-0 lg:py-0">
 
           {/* ── Toast ───────────────────────────────────────────── */}
           {notice && (
@@ -337,7 +375,7 @@ function App() {
               DASHBOARD VIEW
           ═══════════════════════════════════════════════════════ */}
           {activeView === 'dashboard' && (
-            <div className="space-y-5 animate-fade-in">
+            <div className="space-y-5 animate-fade-in pb-6">
               <div className="rounded-2xl border border-slate-100 bg-white p-6">
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-indigo-600">ContentPilot</p>
                 <h2 className="mt-2 text-2xl font-bold text-slate-900">Welcome to your Content Hub</h2>
@@ -368,10 +406,28 @@ function App() {
                 </div>
               </Panel>
 
+              {/* Explain Override Template Pillar */}
+              <Panel title="How It Works" subtitle="Understanding weekly templates, overrides, and modes">
+                <div className="space-y-3 text-sm text-slate-600 leading-relaxed">
+                  <div className="rounded-xl bg-indigo-50/50 border border-indigo-100 p-4">
+                    <p className="font-bold text-indigo-800 text-xs uppercase tracking-wider mb-1.5">Weekly Template</p>
+                    <p>The <strong>Weekly Template</strong> sets a default <strong>content pillar</strong> (topic category) for each day of the week — e.g. "Concept Deep Dive" on Mondays, "Tool Spotlight" on Tuesdays. This automates topic selection when generating a full week.</p>
+                  </div>
+                  <div className="rounded-xl bg-violet-50/50 border border-violet-100 p-4">
+                    <p className="font-bold text-violet-800 text-xs uppercase tracking-wider mb-1.5">Override (Per-Date)</p>
+                    <p>An <strong>Override</strong> lets you change the pillar, topic, or special instructions for a <strong>specific date</strong>. This takes priority over the weekly template. Click any calendar day to set an override.</p>
+                  </div>
+                  <div className="rounded-xl bg-blue-50/50 border border-blue-100 p-4">
+                    <p className="font-bold text-blue-800 text-xs uppercase tracking-wider mb-1.5">Generation Modes</p>
+                    <p><strong>Pre-Generated</strong>: The AI researches via SearXNG, then writes. <strong>Source Dump</strong>: You provide URLs/text manually, the AI skips research and uses your sources directly.</p>
+                  </div>
+                </div>
+              </Panel>
+
               {/* Today's ready posts */}
               {reviewQueue.filter(r => r.status === 'ready').length > 0 && (
                 <Panel title="Ready to Publish" subtitle="These posts are approved and ready for copy-paste.">
-                  <div className="space-y-3">
+                  <div className="space-y-3 max-h-64 overflow-y-auto">
                     {reviewQueue.filter(r => r.status === 'ready').map(item => (
                       <div key={item.id} className="flex items-center justify-between rounded-xl border border-emerald-100 bg-emerald-50/50 px-4 py-3">
                         <div>
@@ -391,7 +447,7 @@ function App() {
               CHANNELS VIEW
           ═══════════════════════════════════════════════════════ */}
           {activeView === 'channels' && (
-            <div className="space-y-5 animate-fade-in">
+            <div className="space-y-5 animate-fade-in pb-6">
               <Panel title="Create Channel" subtitle="Set up a new content channel with profile, sources, and prompt template.">
                 <div className="grid gap-4 md:grid-cols-2">
                   <Field label="Channel Name"><input className={inputClass} value={channelForm.name} onChange={e => setChannelForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. AI News Daily" /></Field>
@@ -409,7 +465,7 @@ function App() {
                   <Field label="Timezone"><input className={inputClass} value={channelForm.timezone} onChange={e => setChannelForm(p => ({ ...p, timezone: e.target.value }))} /></Field>
                 </div>
                 <Field label="Description" className="mt-4"><textarea className={textareaClass} rows={3} value={channelForm.description} onChange={e => setChannelForm(p => ({ ...p, description: e.target.value }))} placeholder="What is this channel about?" /></Field>
-                <Field label="Sources" help="One URL or search query per line." className="mt-4"><textarea className={textareaClass} rows={4} value={channelForm.sources_text} onChange={e => setChannelForm(p => ({ ...p, sources_text: e.target.value }))} placeholder="https://techcrunch.com&#10;AI news this week&#10;..." /></Field>
+                <Field label="Sources" help="One URL or search query per line." className="mt-4"><textarea className={textareaClass} rows={4} value={channelForm.sources_text} onChange={e => setChannelForm(p => ({ ...p, sources_text: e.target.value }))} placeholder={"https://techcrunch.com\nAI news this week\n..."} /></Field>
                 <Field label="Prompt Template" className="mt-4"><textarea className={textareaClass} rows={4} value={channelForm.prompt_template} onChange={e => setChannelForm(p => ({ ...p, prompt_template: e.target.value }))} placeholder="Custom instructions for content generation..." /></Field>
                 <div className="mt-5"><PrimaryButton onClick={createChannel} loading={creatingChannel}>Create Channel</PrimaryButton></div>
               </Panel>
@@ -417,7 +473,7 @@ function App() {
               {/* Existing channels */}
               {loadingChannels ? <SkeletonCard /> : channels.length > 0 && (
                 <Panel title="Your Channels" subtitle="Select a channel to plan content.">
-                  <div className="space-y-3">
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
                     {channels.map(ch => (
                       <div key={ch.id} className={`flex items-center justify-between rounded-xl border px-4 py-3 transition cursor-pointer hover:shadow-md ${selectedChannelId === ch.id ? 'border-indigo-200 bg-indigo-50/50' : 'border-slate-100 bg-slate-50/50'}`} onClick={() => { setSelectedChannelId(ch.id); setActiveView('planner') }}>
                         <div className="min-w-0">
@@ -440,7 +496,7 @@ function App() {
               PLANNER VIEW
           ═══════════════════════════════════════════════════════ */}
           {activeView === 'planner' && (
-            <div className="space-y-5 animate-fade-in">
+            <div className="space-y-5 animate-fade-in pb-6">
               {!selectedChannel ? (
                 <EmptyState text="Select a channel from the sidebar to start planning." icon="◇" />
               ) : (
@@ -502,16 +558,16 @@ function App() {
               CALENDAR VIEW
           ═══════════════════════════════════════════════════════ */}
           {activeView === 'calendar' && (
-            <div className="space-y-5 animate-fade-in">
+            <div className="space-y-5 animate-fade-in pb-6">
               {!selectedChannel ? (
                 <EmptyState text="Select a channel to view its content calendar." icon="▦" />
               ) : (
-                <Panel title={`${selectedChannel.name} — Calendar`} subtitle="Click any day to plan or override.">
+                <Panel title={`${selectedChannel.name} — Calendar`} subtitle="Click any day to view content or plan.">
                   <ContentCalendar
                     selectedChannel={selectedChannel}
                     weeklyTemplateDraft={weeklyTemplateDraft}
                     reviewQueue={reviewQueue}
-                    setOverrideForm={setOverrideForm}
+                    setOverrideForm={handleCalendarDayClick}
                   />
                 </Panel>
               )}
@@ -522,11 +578,11 @@ function App() {
               REVIEW QUEUE VIEW
           ═══════════════════════════════════════════════════════ */}
           {activeView === 'review' && (
-            <div className="space-y-5 animate-fade-in">
+            <div className="space-y-5 animate-fade-in pb-6">
               <Panel title="Review Queue" subtitle="Edit, refine with AI, and copy-paste ready content.">
                 {loadingReview ? <InlineLoader text="Loading review queue..." /> :
                   reviewQueue.length === 0 ? <EmptyState text="No drafts yet. Generate content to populate the queue." icon="◎" /> : (
-                  <div className="space-y-4">
+                  <div className="space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto pr-1">
                     {reviewQueue.map(item => (
                       <article key={item.id} className="rounded-xl border border-slate-100 bg-slate-50/50 p-5 transition hover:shadow-sm">
                         <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
@@ -554,7 +610,7 @@ function App() {
                         </div>
 
                         <textarea
-                          className={`${textareaClass} mt-4 min-h-[200px] bg-white`}
+                          className={`${textareaClass} mt-4 min-h-[200px] max-h-[400px] bg-white resize-y`}
                           value={item.content}
                           onChange={e => setReviewQueue(p => p.map(r => r.id === item.id ? { ...r, content: e.target.value } : r))}
                         />
@@ -595,7 +651,7 @@ function App() {
               SETTINGS VIEW
           ═══════════════════════════════════════════════════════ */}
           {activeView === 'settings' && (
-            <div className="space-y-5 animate-fade-in">
+            <div className="space-y-5 animate-fade-in pb-6">
               <Panel title="System Settings" subtitle="Configure database, model access, and search endpoints.">
                 <div className="grid gap-4 md:grid-cols-2">
                   <Field label="PostgreSQL URL"><input className={inputClass} value={settings.database_url || ''} onChange={e => setSettings(p => ({ ...p, database_url: e.target.value }))} /></Field>
@@ -620,7 +676,7 @@ function App() {
                 {loadingModels ? <InlineLoader text="Fetching models..." /> : models.length === 0 ? (
                   <EmptyState text="No models found. Ensure Ollama is running on localhost:11434." icon="⬡" />
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
                     {models.map(m => (
                       <div key={m} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
                         <span className="text-sm font-medium text-slate-800">{m}</span>
@@ -654,22 +710,25 @@ function App() {
         </main>
       </div>
 
-      {/* ── Override Modal ──────────────────────────────────────── */}
+      {/* ── Override Modal (for planning a new day) ──────────────── */}
       <Modal
         isOpen={!!overrideForm.date}
         onClose={() => setOverrideForm(p => ({ ...p, date: '' }))}
-        title={`Day Plan: ${overrideForm.date}`}
+        title={`Plan Day: ${overrideForm.date}`}
         wide
       >
         <div className="space-y-5">
+          <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
+            <p className="text-xs text-slate-500"><strong>Override Template Pillar</strong> lets you replace the default weekly template pillar with a custom one for this specific date. Leave blank to use the weekly template default.</p>
+          </div>
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Content Pillar"><input className={inputClass} value={overrideForm.pillar} onChange={e => setOverrideForm(p => ({ ...p, pillar: e.target.value }))} placeholder="Override template pillar" /></Field>
+            <Field label="Content Pillar" help="Leave blank to use weekly template default"><input className={inputClass} value={overrideForm.pillar} onChange={e => setOverrideForm(p => ({ ...p, pillar: e.target.value }))} placeholder="Override template pillar" /></Field>
             <Field label="Topic"><input className={inputClass} value={overrideForm.topic} onChange={e => setOverrideForm(p => ({ ...p, topic: e.target.value }))} placeholder="Specific subject for this day" /></Field>
             <Field label="Special Instructions"><input className={inputClass} value={overrideForm.special_instructions} onChange={e => setOverrideForm(p => ({ ...p, special_instructions: e.target.value }))} placeholder="e.g. Keep under 300 words" /></Field>
             <Field label="Generation Mode">
               <select className={inputClass} value={overrideForm.mode} onChange={e => setOverrideForm(p => ({ ...p, mode: e.target.value }))}>
-                <option value="pre_generated">Pre-Generated</option>
-                <option value="source_dump">Source Dump</option>
+                <option value="pre_generated">Pre-Generated (AI researches + writes)</option>
+                <option value="source_dump">Source Dump (You provide sources)</option>
               </select>
             </Field>
           </div>
@@ -690,6 +749,85 @@ function App() {
             />
           )}
         </div>
+      </Modal>
+
+      {/* ── Day Detail Modal (view/edit content + status from calendar) ── */}
+      <Modal
+        isOpen={!!dayDetailDate}
+        onClose={() => setDayDetailDate('')}
+        title={`Day: ${dayDetailDate}`}
+        wide
+      >
+        {dayDetailItem ? (
+          <div className="space-y-5">
+            {/* Status and meta */}
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="rounded-lg bg-white px-3 py-1.5 text-xs font-bold text-slate-600 border border-slate-100">{dayDetailItem.pillar}</span>
+              <span className={`rounded-lg px-3 py-1.5 text-xs font-bold ${dayDetailItem.status === 'ready' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{dayDetailItem.status}</span>
+              <span className="text-xs text-slate-500">Topic: {dayDetailItem.topic}</span>
+            </div>
+
+            {/* Status toggle */}
+            <div className="flex items-center gap-3">
+              <Field label="Set Status">
+                <div className="flex gap-2">
+                  <SecondaryButton
+                    onClick={() => saveDayDetailStatus('draft')}
+                    className={dayDetailItem.status === 'draft' ? '!border-amber-400 !bg-amber-50' : ''}
+                  >
+                    📝 Draft
+                  </SecondaryButton>
+                  <PrimaryButton
+                    onClick={() => saveDayDetailStatus('ready')}
+                    className={dayDetailItem.status === 'ready' ? '!from-emerald-600 !to-green-600' : ''}
+                  >
+                    ✅ Ready
+                  </PrimaryButton>
+                </div>
+              </Field>
+            </div>
+
+            {/* Content viewer */}
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Generated Content</p>
+              <div className="max-h-[50vh] overflow-y-auto rounded-xl border border-slate-200 bg-white p-4">
+                <pre className="whitespace-pre-wrap text-sm text-slate-800 font-sans leading-relaxed">{dayDetailItem.content}</pre>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-wrap gap-3">
+              <PrimaryButton onClick={() => copyContent(dayDetailItem.content)}>Copy Content</PrimaryButton>
+              <SecondaryButton onClick={() => { setDayDetailDate(''); setActiveView('review') }}>Open in Review Queue</SecondaryButton>
+              <SecondaryButton onClick={() => {
+                setDayDetailDate('')
+                setOverrideForm({
+                  date: dayDetailDate,
+                  pillar: '',
+                  topic: '',
+                  special_instructions: '',
+                  mode: 'pre_generated',
+                })
+              }}>Re-Plan This Day</SecondaryButton>
+            </div>
+          </div>
+        ) : (
+          <div className="py-8 text-center">
+            <p className="text-sm text-slate-500">No content generated for this date yet.</p>
+            <div className="mt-4">
+              <PrimaryButton onClick={() => {
+                setDayDetailDate('')
+                setOverrideForm({
+                  date: dayDetailDate,
+                  pillar: '',
+                  topic: '',
+                  special_instructions: '',
+                  mode: 'pre_generated',
+                })
+              }}>Plan This Day</PrimaryButton>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* ── Loading overlay ─────────────────────────────────────── */}

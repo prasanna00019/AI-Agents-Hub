@@ -210,7 +210,10 @@ async def writer_node(state: AgentState) -> Dict[str, Any]:
         prompt += f"Channel prompt template: {channel['prompt_template']}\n"
     prompt += (
         "\nWrite ONE polished, highly engaging post ready for copy-paste publishing. "
-        "Do NOT include any meta-commentary."
+        "Do NOT include any meta-commentary.\n\n"
+        "IMPORTANT: If the research context contains source URLs, you MUST cite them "
+        "at the end of the post in a 'Sources:' section with the actual URLs. "
+        "This gives credibility to the content."
     )
 
     try:
