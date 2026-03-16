@@ -1,122 +1,54 @@
 # ContentPilot
 
-An agentic content generation platform that runs 100% locally, designed to automate content creation for your channels without sending any data to third-party clouds.
+ContentPilot is a local-first content generation platform. The full product vision is documented in `IDEA.md`.
 
-## Project Status
+This repository is currently configured for a **simple prototype flow**:
+- FastAPI backend
+- React + Vite frontend
+- PostgreSQL running on your machine (no Postgres Docker service)
+- No Redis and no Alembic migration workflow for now
 
-This project is currently under active development. Below is what has been implemented so far:
+## Quick Start (Prototype Mode)
 
-### ✅ Completed Components
+## 1. Start PostgreSQL locally
+Use your local Postgres instance (for example via pgAdmin).
 
-#### Backend Infrastructure
-- Docker Compose setup with PostgreSQL, Redis, and SearXNG services
-- FastAPI backend with proper project structure
-- Basic database models for core entities (Users, Channels, etc.)
-- Alembic for database migrations
-- Configuration management with environment variables
+Make sure this database exists:
+- `contentpilot`
 
-#### Backend Structure
-```
-backend/
-├── src/
-│   ├── backend/
-│   │   ├── agents/          # AI agent implementations
-│   │   ├── api/             # FastAPI routers and endpoints
-│   │   ├── core/            # Core configurations and settings
-│   │   ├── db/              # Database connection and setup
-│   │   ├── models/          # Database models and Pydantic schemas
-│   │   ├── services/        # Business logic services
-│   │   ├── utils/           # Utility functions
-│   │   └── main.py          # Main application entry point
-├── alembic/                 # Database migrations
-├── pyproject.toml           # Project dependencies and metadata
-└── requirements.txt         # Alternative dependency management
+## 2. Run backend
+
+```bash
+cd backend
+pip install -r requirements.txt
+set DATABASE_URL=postgresql://postgres:password@localhost:5432/contentpilot
+uvicorn src.backend.main:app --reload --port 8000
 ```
 
-#### Frontend
-- Basic React/Vite setup with Tailwind CSS
-- Placeholder UI components
+## 3. Run frontend
 
-#### Infrastructure
-- Docker Compose configuration for local development
-- PostgreSQL with pgvector extension support
-- Redis for task queuing
-- SearXNG for private search capabilities
-
-### 🚧 In Progress
-
-#### Backend Development
-- LangGraph agent implementation for content generation pipeline
-- Full database model implementation based on IDEA.md specifications
-- API endpoints for channel management and content generation
-- Integration with Ollama for local LLM processing
-
-### 🔜 Planned Features
-
-#### MVP Scope (Phase 1)
-- [ ] Complete database models for all entities in IDEA.md
-- [ ] LangGraph agent pipeline implementation:
-  - Research Agent (searches SearXNG + configured sources)
-  - Summarization Agent (condenses raw content)
-  - Writer Agent (generates post drafts)
-  - Formatter Agent (applies platform-specific formatting)
-  - Quality Agent (checks tone consistency, repetition, length)
-- [ ] Weekly template setup and per-day slot overrides
-- [ ] Pre-generated content mode implementation
-- [ ] WhatsApp formatter with copy-to-clipboard functionality
-- [ ] Review queue with inline editing and refinement chat
-
-#### Future Enhancements
-- [ ] Source-dump generation pipeline for time-sensitive content
-- [ ] Episodic memory via pgvector to avoid content repetition
-- [ ] Preference memory from edit and refinement history
-- [ ] Multi-channel support
-- [ ] Additional platform formatters (Telegram, LinkedIn, Email)
-
-## Technology Stack
-
-### Backend
-- **Runtime:** Python (FastAPI) with async support
-- **Database:** PostgreSQL with pgvector extension
-- **Task Queue:** Celery + Redis
-- **LLM Orchestration:** LangGraph for stateful multi-agent pipelines
-- **Search:** SearXNG (self-hosted metasearch)
-- **Web Scraping:** Playwright (local headless browser)
-
-### AI / LLM
-- **LLM:** Ollama (runs models like Llama 3, Mistral, Gemma, Qwen locally)
-- **Embeddings:** Ollama embedding models (nomic-embed-text, mxbai-embed-large)
-- **Zero external AI calls** - all requests go to localhost
-
-### Frontend
-- **Framework:** Next.js (React) with TypeScript
-- **UI Library:** shadcn/ui + Tailwind CSS
-- **Real-time Agent Logs:** Server-Sent Events (SSE)
-
-### Infrastructure
-- **Containerization:** Docker Compose for easy setup
-- **Authentication:** Local username + hashed password
-- **Storage:** Docker volumes for persistent data
-
-## Local Development Setup
-
-1. Ensure you have Docker and Docker Compose installed
-2. Run `docker-compose up` to start all services
-3. The backend will be available at http://localhost:8000
-4. The frontend will be available at http://localhost:3000
-
-## Architecture Overview
-
-ContentPilot implements two distinct content generation modes:
-
-### Pre-Generated Mode (Evergreen Content)
-```
-[Trigger] → [Research Agent] → [Summarization Agent] → [Writer Agent] → [Formatter Agent] → [Quality Agent] → [Review Queue]
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
-### Source-Dump Mode (Time-Sensitive Content)
-```
-[User builds source inbox over time] → [Trigger] → [Summarization Agent] → [Writer Agent] → [Formatter Agent] → [Review Queue]
+Open the frontend URL shown by Vite (usually `http://localhost:5173`).
+
+The homepage will call `GET /health` from the backend and show live connection status.
+
+## Optional Docker (Backend + Frontend + SearXNG)
+
+If you want, you can still run these services through Docker Compose:
+
+```bash
+docker-compose up --build
 ```
 
-For detailed information about the platform concepts, architecture, and features, see [IDEA.md](IDEA.md).
+In this mode, backend uses:
+- `DATABASE_URL=postgresql://postgres:password@host.docker.internal:5432/contentpilot`
+
+## Notes
+
+- Keep this branch simple while validating the UI/API prototype.
+- Redis, Celery, and Alembic can be added back later when async jobs and migration workflows are needed.

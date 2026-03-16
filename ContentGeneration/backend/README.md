@@ -14,14 +14,26 @@ This is the backend for ContentPilot, an agentic content generation platform tha
 
 ## Development
 
-Install dependencies with uv:
+Install dependencies:
 
 ```bash
-uv sync
+pip install -r requirements.txt
+```
+
+Set your local database URL (PowerShell):
+
+```bash
+$env:DATABASE_URL="postgresql://postgres:password@localhost:5432/contentpilot"
 ```
 
 Run the development server:
 
 ```bash
-uv run uvicorn src.backend.main:app --reload
+uvicorn src.backend.main:app --reload --port 8000
 ```
+
+## Current Scope
+
+- PostgreSQL connection only (local instance)
+- No Redis/Celery runtime
+- No Alembic migration workflow

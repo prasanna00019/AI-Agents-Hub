@@ -1,27 +1,4 @@
 services:
-  postgres:
-    image: postgres:16
-    container_name: contentpilot-postgres
-    restart: always
-    environment:
-      POSTGRES_DB: contentpilot
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init-scripts:/docker-entrypoint-initdb.d
-
-  redis:
-    image: redis:7-alpine
-    container_name: contentpilot-redis
-    restart: always
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-
   searxng:
     image: docker.io/searxng/searxng:latest
     container_name: contentpilot-searxng
@@ -40,12 +17,9 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
-      - redis
       - searxng
     environment:
-      - DATABASE_URL=postgresql://postgres:password@postgres:5432/contentpilot
-      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://postgres:password@host.docker.internal:6739/contentpilot
       - SEARXNG_URL=http://searxng:8080
     volumes:
       - ./backend:/app
@@ -61,7 +35,3 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
-
-volumes:
-  postgres_data:
-  redis_data:

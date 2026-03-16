@@ -1,0 +1,66 @@
+Metadata-Version: 2.4
+Name: contentpilot-backend
+Version: 0.1.0
+Summary: Backend for ContentPilot - Agentic Content Generation Platform
+Author-email: Prasanna <prasanna@example.com>
+License: MIT
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi>=0.104.0
+Requires-Dist: uvicorn>=0.24.0
+Requires-Dist: pydantic>=2.5.0
+Requires-Dist: pydantic-settings>=2.0.0
+Requires-Dist: sqlalchemy>=2.0.0
+Requires-Dist: asyncpg>=0.29.0
+Requires-Dist: psycopg2-binary>=2.9.0
+Requires-Dist: langgraph>=0.0.38
+Requires-Dist: ollama>=0.1.7
+Requires-Dist: playwright>=1.40.0
+Requires-Dist: httpx>=0.25.0
+Requires-Dist: python-dotenv>=1.0.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.21.0; extra == "dev"
+Requires-Dist: black>=23.0.0; extra == "dev"
+Requires-Dist: flake8>=6.0.0; extra == "dev"
+Requires-Dist: mypy>=1.7.0; extra == "dev"
+
+# ContentPilot Backend
+
+This is the backend for ContentPilot, an agentic content generation platform that runs 100% locally.
+
+## Structure
+
+- `api/` - FastAPI routers and endpoints
+- `core/` - Core configurations and settings
+- `models/` - Database models and schemas
+- `services/` - Business logic services
+- `utils/` - Utility functions
+- `agents/` - AI agent implementations
+- `db/` - Database connection and setup
+
+## Development
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Set your local database URL (PowerShell):
+
+```bash
+$env:DATABASE_URL="postgresql://postgres:radha@localhost:6739/CONTENT"
+```
+
+Run the development server:
+
+```bash
+uvicorn src.backend.main:app --reload --port 8000
+```
+
+## Current Scope
+
+- PostgreSQL connection only (local instance)
+- No Redis/Celery runtime
+- No Alembic migration workflow
