@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.backend.api import api_router
 from src.backend.core.config import settings
-from src.backend.services.phase1_service import phase1_service
+from src.backend.services.content_service import content_service
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -15,7 +15,6 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-      
       "*"
     ],
     allow_credentials=True,
@@ -29,7 +28,7 @@ app.include_router(api_router)
 
 @app.on_event("startup")
 async def startup_event():
-    phase1_service.initialize_storage()
+    content_service.initialize_storage()
 
 @app.get("/")
 async def root():
