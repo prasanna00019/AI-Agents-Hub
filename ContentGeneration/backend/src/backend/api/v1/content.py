@@ -2,13 +2,13 @@
 Content API — all REST endpoints for ContentPilot.
 
 Includes: settings, channels, source dumps, generation, review queue,
-SearXNG Docker control, and SSE streaming.
+SearXNG Docker control, memory, and SSE streaming.
 """
 
 from __future__ import annotations
 
 import asyncio
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -33,6 +33,9 @@ class AppSettingsUpdate(BaseModel):
     ollama_base_url: Optional[str] = None
     default_ollama_model: Optional[str] = None
     searxng_url: Optional[str] = None
+    searxng_categories: Optional[str] = None
+    searxng_max_results: Optional[int] = None
+    searxng_time_range: Optional[str] = None
 
 
 class ChannelCreateRequest(BaseModel):
@@ -47,6 +50,7 @@ class ChannelCreateRequest(BaseModel):
     prompt_template: str = ""
     weekly_template: Dict[str, str] = Field(default_factory=dict)
     overrides: Dict[str, Dict[str, str]] = Field(default_factory=dict)
+    context_notes: str = ""
 
 
 class ChannelUpdateRequest(BaseModel):
@@ -59,6 +63,7 @@ class ChannelUpdateRequest(BaseModel):
     timezone: Optional[str] = None
     sources: Optional[List[str]] = None
     prompt_template: Optional[str] = None
+    context_notes: Optional[str] = None
 
 
 class WeeklyTemplateRequest(BaseModel):
@@ -71,6 +76,7 @@ class OverrideRequest(BaseModel):
     topic: str = ""
     special_instructions: str = ""
     mode: str = "pre_generated"
+    search_additional: bool = True
 
 
 class SourceDumpRequest(BaseModel):
@@ -83,6 +89,7 @@ class SourceDumpRequest(BaseModel):
 class GenerateDayRequest(BaseModel):
     date: str
     model: Optional[str] = None
+    search_additional: bool = True
 
 
 class GenerateWeekRequest(BaseModel):
@@ -98,6 +105,11 @@ class ReviewItemUpdateRequest(BaseModel):
 class RefineItemRequest(BaseModel):
     instruction: str
     model: Optional[str] = None
+
+
+class MemoryCreateRequest(BaseModel):
+    type: str = "contextual"  # contextual, episodic, preference
+    content: str
 
 
 # ── Settings ──────────────────────────────────────────────────────────────
@@ -183,6 +195,11 @@ async def list_source_dumps(channel_id: str, date: str):
     return content_service.list_source_dumps(channel_id, date)
 
 
+@router.get("/channels/{channel_id}/source-dump-counts")
+async def get_source_dump_counts(channel_id: str):
+    return content_service.get_source_dump_counts(channel_id)
+
+
 @router.delete("/channels/{channel_id}/source-dumps/{dump_id}")
 async def delete_source_dump(channel_id: str, dump_id: str):
     ok = content_service.delete_source_dump(dump_id)
@@ -197,7 +214,9 @@ async def delete_source_dump(channel_id: str, dump_id: str):
 async def generate_day(channel_id: str, payload: GenerateDayRequest):
     """Async single-day generation that returns a run id for SSE streaming."""
     try:
-        return await content_service.start_day_generation(channel_id, payload.date, payload.model)
+        return await content_service.start_day_generation(
+            channel_id, payload.date, payload.model, payload.search_additional
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -284,6 +303,26 @@ async def refine_review_item(item_id: str, payload: RefineItemRequest):
     if not result:
         raise HTTPException(status_code=500, detail="Refinement failed")
     return result
+
+
+# ── Memory ────────────────────────────────────────────────────────────────
+
+@router.get("/channels/{channel_id}/memory")
+async def list_channel_memory(channel_id: str, type: Optional[str] = Query(default=None)):
+    return content_service.list_memories(channel_id, type)
+
+
+@router.post("/channels/{channel_id}/memory")
+async def add_channel_memory(channel_id: str, payload: MemoryCreateRequest):
+    return content_service.add_memory(channel_id, payload.type, payload.content)
+
+
+@router.delete("/channels/{channel_id}/memory/{memory_id}")
+async def delete_channel_memory(channel_id: str, memory_id: str):
+    ok = content_service.delete_memory(memory_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"ok": True}
 
 
 # ── SearXNG Docker Control ───────────────────────────────────────────────

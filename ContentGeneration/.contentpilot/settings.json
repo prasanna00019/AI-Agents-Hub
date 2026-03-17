@@ -2,5 +2,8 @@
   "database_url": "postgresql://postgres:radha@localhost:6739/CONTENT",
   "ollama_base_url": "http://localhost:11434",
   "default_ollama_model": "devstral-2:123b-cloud",
-  "searxng_url": "http://localhost:5147"
+  "searxng_url": "http://localhost:5147",
+  "searxng_categories": "general",
+  "searxng_max_results": 4,
+  "searxng_time_range": "any"
 }

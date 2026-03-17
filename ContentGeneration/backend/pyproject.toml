@@ -2,7 +2,7 @@
 name = "contentpilot-backend"
 version = "0.1.0"
 description = "Backend for ContentPilot - Agentic Content Generation Platform"
-authors = [{ name = "Prasanna", email = "prasanna@example.com" }]
+authors = [{ name = "Prasanna", email = "prasanna.000019@example.com" }]
 license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,15 +35,15 @@ dev = [
     "mypy>=1.7.0",
 ]
 
-[build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dependencies = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
     "flake8>=6.0.0",
     "mypy>=1.7.0",
 ]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"

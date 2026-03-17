@@ -3,7 +3,7 @@ from __future__ import annotations
 import html
 import re
 from html.parser import HTMLParser
-from typing import Any, Awaitable, Callable, Dict, List, Sequence
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence
 from urllib.parse import urlparse
 
 import httpx
@@ -18,6 +18,10 @@ URL_PATTERN = re.compile(r"https?://[^\s<>()\"']+")
 LogCallback = Callable[[str, str], Awaitable[None]]
 
 
+# ---------------------------------------------------------------------------
+# HTML text extraction — improved with article/main prioritization
+# ---------------------------------------------------------------------------
+
 class _HTMLTextExtractor(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -28,22 +32,23 @@ class _HTMLTextExtractor(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: Sequence[tuple[str, str | None]]) -> None:
         tag = tag.lower()
-        if tag in {"script", "style", "noscript", "svg"}:
+        if tag in {"script", "style", "noscript", "svg", "nav", "footer", "header"}:
             self._skip_depth += 1
             return
         if tag == "title":
             self._capture_break = True
-        if tag in {"p", "article", "section", "div", "br", "li", "h1", "h2", "h3", "h4", "h5", "h6"}:
+        if tag in {"p", "article", "section", "div", "br", "li",
+                    "h1", "h2", "h3", "h4", "h5", "h6", "blockquote"}:
             self._text_parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
-        if tag in {"script", "style", "noscript", "svg"} and self._skip_depth:
+        if tag in {"script", "style", "noscript", "svg", "nav", "footer", "header"} and self._skip_depth:
             self._skip_depth -= 1
             return
         if tag == "title":
             self._capture_break = False
-        if tag in {"p", "article", "section", "div", "li"}:
+        if tag in {"p", "article", "section", "div", "li", "blockquote"}:
             self._text_parts.append("\n")
 
     def handle_data(self, data: str) -> None:
@@ -67,6 +72,10 @@ class _HTMLTextExtractor(HTMLParser):
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
+
+# ---------------------------------------------------------------------------
+# URL helpers
+# ---------------------------------------------------------------------------
 
 def normalize_url(value: str) -> str:
     return value.strip().rstrip("/.,);]")
@@ -103,6 +112,18 @@ def _text_without_urls(value: str) -> str:
     return " ".join(URL_PATTERN.sub(" ", value or "").split()).strip()
 
 
+def _smart_truncate(text: str, max_len: int = 18000) -> str:
+    """Truncate text at a paragraph boundary near max_len."""
+    if len(text) <= max_len:
+        return text
+    cut_point = text.rfind("\n\n", 0, max_len)
+    if cut_point < max_len * 0.5:
+        cut_point = text.rfind("\n", 0, max_len)
+    if cut_point < max_len * 0.5:
+        cut_point = max_len
+    return text[:cut_point].rstrip()
+
+
 def _document_payload(
     *,
     title: str,
@@ -128,32 +149,30 @@ def _format_document_for_context(document: Dict[str, Any]) -> str:
     return f"{header}\n{document.get('content', '').strip()}".strip()
 
 
-def _query_terms(query: str) -> set[str]:
-    return {term for term in re.findall(r"[a-zA-Z0-9]{3,}", query.lower())}
+# ---------------------------------------------------------------------------
+# SearXNG search
+# ---------------------------------------------------------------------------
 
-
-def _fallback_rank_documents(documents: Sequence[Any], query: str, limit: int) -> List[Any]:
-    terms = _query_terms(query)
-    if not terms:
-        return list(documents[:limit])
-
-    def _score(document: Any) -> tuple[int, int]:
-        content = (document.page_content if hasattr(document, "page_content") else str(document)).lower()
-        hits = sum(content.count(term) for term in terms)
-        return hits, len(content)
-
-    ranked = sorted(documents, key=_score, reverse=True)
-    return list(ranked[:limit])
-
-
-async def search_searxng(searx_url: str, query: str, limit: int = 4) -> List[Dict[str, Any]]:
+async def search_searxng(
+    searx_url: str,
+    query: str,
+    limit: int = 4,
+    categories: Optional[str] = None,
+    time_range: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     if not searx_url.strip() or not query.strip():
         return []
+
+    params: Dict[str, Any] = {"q": query, "format": "json"}
+    if categories:
+        params["categories"] = categories
+    if time_range and time_range != "any":
+        params["time_range"] = time_range
 
     async with httpx.AsyncClient(timeout=12.0, headers={"User-Agent": USER_AGENT}) as client:
         response = await client.get(
             f"{searx_url.rstrip('/')}/search",
-            params={"q": query, "format": "json"},
+            params=params,
         )
         response.raise_for_status()
         payload = response.json()
@@ -170,6 +189,10 @@ async def search_searxng(searx_url: str, query: str, limit: int = 4) -> List[Dic
     return results
 
 
+# ---------------------------------------------------------------------------
+# Web scraping
+# ---------------------------------------------------------------------------
+
 async def scrape_url(url: str, client: httpx.AsyncClient) -> Dict[str, Any]:
     try:
         response = await client.get(url, follow_redirects=True)
@@ -184,11 +207,15 @@ async def scrape_url(url: str, client: httpx.AsyncClient) -> Dict[str, Any]:
             "ok": True,
             "url": normalize_url(str(response.url)),
             "title": title,
-            "content": content[:18000],
+            "content": _smart_truncate(content),
         }
     except Exception as exc:
         return {"ok": False, "url": normalize_url(url), "title": url, "content": "", "error": str(exc)}
 
+
+# ---------------------------------------------------------------------------
+# Research material collector
+# ---------------------------------------------------------------------------
 
 async def collect_research_material(
     *,
@@ -196,6 +223,10 @@ async def collect_research_material(
     raw_sources: Sequence[str],
     searx_url: str = "",
     mode: str = "pre_generated",
+    search_additional: bool = True,
+    searxng_categories: str = "",
+    searxng_time_range: str = "",
+    searxng_max_results: int = 4,
     log_cb: LogCallback | None = None,
 ) -> Dict[str, Any]:
     documents: List[Dict[str, Any]] = []
@@ -230,11 +261,17 @@ async def collect_research_material(
 
     search_results: List[Dict[str, Any]] = []
     search_urls: List[str] = []
-    if mode != "source_dump" and searx_url.strip() and topic.strip():
+    should_search = (mode != "source_dump") and search_additional and searx_url.strip() and topic.strip()
+    if should_search:
         if log_cb:
             await log_cb("running", f"Searching SearXNG for: {topic}")
         try:
-            search_results = await search_searxng(searx_url, topic)
+            search_results = await search_searxng(
+                searx_url, topic,
+                limit=searxng_max_results,
+                categories=searxng_categories or None,
+                time_range=searxng_time_range or None,
+            )
             for result in search_results:
                 if result.get("snippet"):
                     documents.append(
@@ -250,7 +287,8 @@ async def collect_research_material(
             if log_cb:
                 await log_cb(
                     "running",
-                    f"SearXNG returned {len(search_results)} result(s): {', '.join(result['url'] for result in search_results if result.get('url'))}",
+                    f"SearXNG returned {len(search_results)} result(s): "
+                    f"{', '.join(r['url'] for r in search_results if r.get('url'))}",
                 )
         except Exception as exc:
             if log_cb:
@@ -277,26 +315,29 @@ async def collect_research_material(
                         )
                     )
                     if log_cb:
-                        await log_cb(
-                            "running",
-                            f"Scraped {scraped['url']} ({len(scraped['content'])} chars)",
-                        )
+                        await log_cb("running", f"Scraped {scraped['url']} ({len(scraped['content'])} chars)")
                 elif log_cb:
                     await log_cb("warning", f"Failed to scrape {scraped['url']}: {scraped.get('error', 'Unknown error')}")
 
     combined_text = "\n\n---\n\n".join(
-        _format_document_for_context(document)
-        for document in documents
-        if document.get("content")
+        _format_document_for_context(doc)
+        for doc in documents if doc.get("content")
     )
     return {
-        "documents": [document for document in documents if document.get("content")],
+        "documents": [doc for doc in documents if doc.get("content")],
         "combined_text": combined_text,
         "search_results": search_results,
         "provided_urls": provided_urls,
-        "scraped_urls": [document.get("url", "") for document in documents if document.get("kind") == "scraped_page" and document.get("url")],
+        "scraped_urls": [
+            doc.get("url", "") for doc in documents
+            if doc.get("kind") == "scraped_page" and doc.get("url")
+        ],
     }
 
+
+# ---------------------------------------------------------------------------
+# RAG context builder — LangChain EnsembleRetriever (BM25 + Semantic MMR)
+# ---------------------------------------------------------------------------
 
 async def build_rag_context(
     *,
@@ -304,7 +345,7 @@ async def build_rag_context(
     query: str,
     max_chunks: int = 6,
 ) -> Dict[str, Any]:
-    cleaned_documents = [document for document in documents if document.get("content")]
+    cleaned_documents = [doc for doc in documents if doc.get("content")]
     if not cleaned_documents:
         return {
             "context": "",
@@ -317,57 +358,125 @@ async def build_rag_context(
     try:
         from langchain_chroma import Chroma
         from langchain_community.embeddings import HuggingFaceEmbeddings
+        from langchain_community.retrievers import BM25Retriever
         from langchain_core.documents import Document
         from langchain_text_splitters import RecursiveCharacterTextSplitter
+        from langchain.retrievers import EnsembleRetriever
 
+        # Build LangChain Document objects
         source_documents = [
             Document(
-                page_content=_format_document_for_context(document),
+                page_content=_format_document_for_context(doc),
                 metadata={
-                    "title": document.get("title", ""),
-                    "url": document.get("url", ""),
-                    "kind": document.get("kind", ""),
+                    "title": doc.get("title", ""),
+                    "url": doc.get("url", ""),
+                    "kind": doc.get("kind", ""),
                 },
             )
-            for document in cleaned_documents
+            for doc in cleaned_documents
         ]
+
+        # Chunk for retrieval
         splitter = RecursiveCharacterTextSplitter(chunk_size=900, chunk_overlap=180)
         splits = splitter.split_documents(source_documents)
+
+        if not splits:
+            return {
+                "context": "",
+                "retrieval_mode": "no_splits",
+                "selected_sources": [],
+                "document_count": len(cleaned_documents),
+                "chunk_count": 0,
+            }
+
+        # Semantic retriever via Chroma + HuggingFace embeddings
         embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         vectorstore = Chroma.from_documents(documents=splits, embedding=embeddings)
-        retriever = vectorstore.as_retriever(
+        semantic_retriever = vectorstore.as_retriever(
             search_type="mmr",
-            search_kwargs={"k": min(max_chunks, len(splits)), "fetch_k": min(max(len(splits), max_chunks * 3), 20)},
+            search_kwargs={
+                "k": max_chunks,
+                "fetch_k": min(max(len(splits), max_chunks * 3), 30),
+            },
         )
-        retrieved = retriever.invoke(query or "Main ideas and supporting evidence")
-        selected = retrieved[:max_chunks]
-        retrieval_mode = "semantic_mmr"
+
+        # BM25 keyword retriever (uses rank_bm25 under the hood)
+        bm25_retriever = BM25Retriever.from_documents(splits)
+        bm25_retriever.k = max_chunks
+
+        # Hybrid retriever: combines both with Reciprocal Rank Fusion
+        # weights: 0.5 semantic + 0.5 BM25 for balanced retrieval
+        ensemble_retriever = EnsembleRetriever(
+            retrievers=[semantic_retriever, bm25_retriever],
+            weights=[0.5, 0.5],
+        )
+
+        selected = ensemble_retriever.invoke(query or "Main ideas and supporting evidence")
+        selected = selected[:max_chunks]
+        retrieval_mode = "hybrid_ensemble_bm25_semantic"
+
         try:
             vectorstore.delete_collection()
         except Exception:
             pass
+
     except Exception:
-        from dataclasses import dataclass
+        # Fallback: basic BM25-only retrieval
+        try:
+            from langchain_community.retrievers import BM25Retriever
+            from langchain_core.documents import Document
+            from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-        @dataclass
-        class _FallbackDocument:
-            page_content: str
-            metadata: Dict[str, Any]
+            source_documents = [
+                Document(
+                    page_content=_format_document_for_context(doc),
+                    metadata={
+                        "title": doc.get("title", ""),
+                        "url": doc.get("url", ""),
+                        "kind": doc.get("kind", ""),
+                    },
+                )
+                for doc in cleaned_documents
+            ]
+            splitter = RecursiveCharacterTextSplitter(chunk_size=900, chunk_overlap=180)
+            splits = splitter.split_documents(source_documents)
 
-        base_documents = [
-            _FallbackDocument(
-                page_content=_format_document_for_context(document),
-                metadata={
-                    "title": document.get("title", ""),
-                    "url": document.get("url", ""),
-                    "kind": document.get("kind", ""),
-                },
-            )
-            for document in cleaned_documents
-        ]
-        selected = _fallback_rank_documents(base_documents, query, max_chunks)
-        splits = base_documents
-        retrieval_mode = "keyword_fallback"
+            bm25_retriever = BM25Retriever.from_documents(splits)
+            bm25_retriever.k = max_chunks
+            selected = bm25_retriever.invoke(query or "Main ideas and supporting evidence")
+            retrieval_mode = "bm25_fallback"
+        except Exception:
+            # Ultimate fallback: simple keyword scoring
+            from dataclasses import dataclass
+
+            @dataclass
+            class _FallbackDocument:
+                page_content: str
+                metadata: Dict[str, Any]
+
+            base_docs = [
+                _FallbackDocument(
+                    page_content=_format_document_for_context(doc),
+                    metadata={
+                        "title": doc.get("title", ""),
+                        "url": doc.get("url", ""),
+                        "kind": doc.get("kind", ""),
+                    },
+                )
+                for doc in cleaned_documents
+            ]
+            terms = {t for t in re.findall(r"[a-zA-Z0-9]{3,}", query.lower())}
+            if terms:
+                scored = sorted(
+                    base_docs,
+                    key=lambda d: sum(d.page_content.lower().count(t) for t in terms),
+                    reverse=True,
+                )
+                selected = scored[:max_chunks]
+            else:
+                selected = base_docs[:max_chunks]
+            splits = base_docs
+            retrieval_mode = "keyword_fallback"
 
     context_parts: List[str] = []
     selected_sources: List[str] = []

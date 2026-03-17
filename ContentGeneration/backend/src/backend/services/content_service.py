@@ -18,6 +18,7 @@ from src.backend.db.database import Base, get_engine, get_session_factory
 from src.backend.models.content_models import (
     ChannelRecord,
     GenerationRunRecord,
+    MemoryRecord,
     ReviewItemRecord,
     SourceDumpItemRecord,
 )
@@ -44,17 +45,24 @@ class ContentService:
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
         db_path = (self._data_dir / "contentpilot.db").absolute().as_posix()
-        self._settings: Dict[str, str] = {
+        self._settings: Dict[str, Any] = {
             "database_url": settings.DATABASE_URL or f"sqlite:///{db_path}",
             "ollama_base_url": settings.OLLAMA_BASE_URL,
             "default_ollama_model": settings.DEFAULT_OLLAMA_MODEL,
             "searxng_url": settings.SEARXNG_URL,
+            "searxng_categories": "general",
+            "searxng_max_results": 4,
+            "searxng_time_range": "any",
         }
         self._load_runtime_settings()
 
+        # Memory service (lazy init after DB is configured)
+        from src.backend.services.memory_service import MemoryService
+        self._memory = MemoryService(get_db_url_fn=self.ensure_database_configured)
+
     def initialize_storage(self) -> None:
         db_url = self._settings.get("database_url")
-        if not db_url or "CHANGE_ME" in db_url:
+        if not db_url or "CHANGE_ME" in str(db_url):
             return
 
         def _init() -> None:
@@ -70,6 +78,7 @@ class ContentService:
                         ReviewItemRecord.__table__,
                         SourceDumpItemRecord.__table__,
                         GenerationRunRecord.__table__,
+                        MemoryRecord.__table__,
                     ],
                 )
             except Exception as exc:
@@ -109,6 +118,8 @@ class ContentService:
         finally:
             db.close()
 
+    # ── Serialisers ──────────────────────────────────────────────────
+
     @staticmethod
     def _serialize_channel(record: ChannelRecord) -> Dict[str, Any]:
         return {
@@ -124,6 +135,7 @@ class ContentService:
             "prompt_template": record.prompt_template,
             "weekly_template": record.weekly_template or _default_weekly_template(),
             "overrides": record.overrides or {},
+            "context_notes": record.context_notes or "",
             "created_at": record.created_at.isoformat(),
             "updated_at": record.updated_at.isoformat(),
         }
@@ -136,6 +148,7 @@ class ContentService:
             "date": record.date,
             "pillar": record.pillar,
             "topic": record.topic,
+            "platform": record.platform or "whatsapp",
             "status": record.status,
             "content": record.content,
             "chat_history": record.chat_history or [],
@@ -165,15 +178,17 @@ class ContentService:
             normalized = normalized.rstrip("/")
         return normalized
 
+    # ── DB / config helpers ──────────────────────────────────────────
+
     def ensure_database_configured(self) -> str:
-        database_url = (self._settings.get("database_url") or "").strip()
+        database_url = str(self._settings.get("database_url") or "").strip()
         if not database_url:
             raise ValueError("Database URL is not configured. Save it in Settings first.")
         return database_url
 
     def get_ollama_runtime_config(self, override_model: Optional[str] = None) -> Dict[str, str]:
-        base_url = (self._settings.get("ollama_base_url") or "").rstrip("/")
-        model_name = (override_model or self._settings.get("default_ollama_model") or "").strip()
+        base_url = str(self._settings.get("ollama_base_url") or "").rstrip("/")
+        model_name = (override_model or str(self._settings.get("default_ollama_model") or "")).strip()
         return {"base_url": base_url, "model_name": model_name}
 
     def validate_ollama_runtime_config(self, override_model: Optional[str] = None) -> Dict[str, str]:
@@ -185,7 +200,7 @@ class ContentService:
         return config
 
     def get_searxng_runtime_config(self) -> Dict[str, Any]:
-        url = (self._settings.get("searxng_url") or "").strip().rstrip("/")
+        url = str(self._settings.get("searxng_url") or "").strip().rstrip("/")
         if not url:
             return {"configured": False, "url": "", "port": None, "controllable": False}
 
@@ -198,10 +213,12 @@ class ContentService:
             "controllable": port is not None,
         }
 
-    def get_settings(self) -> Dict[str, str]:
-        return self._settings.copy()
+    # ── Settings ─────────────────────────────────────────────────────
 
-    def update_settings(self, updates: Dict[str, str]) -> Dict[str, str]:
+    def get_settings(self) -> Dict[str, Any]:
+        return {k: v for k, v in self._settings.items()}
+
+    def update_settings(self, updates: Dict[str, Any]) -> Dict[str, Any]:
         normalized_updates = {
             key: self._normalize_settings_update(key, value)
             for key, value in updates.items()
@@ -222,7 +239,7 @@ class ContentService:
             return {"ok": False, "message": str(exc)}
 
     async def list_ollama_models(self, base_url: Optional[str] = None) -> Dict[str, Any]:
-        resolved_base_url = (base_url or self._settings.get("ollama_base_url") or "").strip()
+        resolved_base_url = (base_url or str(self._settings.get("ollama_base_url") or "")).strip()
         if not resolved_base_url:
             return {
                 "ok": False,
@@ -248,6 +265,8 @@ class ContentService:
         except Exception as exc:
             return {"ok": False, "models": [], "base_url": ollama_base_url, "message": str(exc)}
 
+    # ── Channels ─────────────────────────────────────────────────────
+
     def create_channel(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         self.initialize_storage()
         now = datetime.utcnow()
@@ -264,6 +283,7 @@ class ContentService:
             prompt_template=payload.get("prompt_template", ""),
             weekly_template=payload.get("weekly_template") or _default_weekly_template(),
             overrides=payload.get("overrides", {}),
+            context_notes=payload.get("context_notes", ""),
             created_at=now,
             updated_at=now,
         )
@@ -301,6 +321,7 @@ class ContentService:
                 "timezone",
                 "sources",
                 "prompt_template",
+                "context_notes",
             ]:
                 if field in updates and updates[field] is not None:
                     setattr(record, field, updates[field])
@@ -342,11 +363,14 @@ class ContentService:
                 "topic": override.get("topic", ""),
                 "special_instructions": override.get("special_instructions", ""),
                 "mode": override.get("mode", "pre_generated"),
+                "search_additional": override.get("search_additional", True),
             }
             record.overrides = overrides
             record.updated_at = datetime.utcnow()
             db.add(record)
             return self._serialize_channel(record)
+
+    # ── Source Dumps ─────────────────────────────────────────────────
 
     def add_source_dump(self, channel_id: str, date_key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         self.initialize_storage()
@@ -392,6 +416,19 @@ class ContentService:
                 for record in rows
             ]
 
+    def get_source_dump_counts(self, channel_id: str) -> Dict[str, int]:
+        """Return a map of date -> dump count for all dates that have dumps."""
+        self.initialize_storage()
+        with self._session() as db:
+            rows = db.execute(
+                select(SourceDumpItemRecord.date)
+                .where(SourceDumpItemRecord.channel_id == channel_id)
+            ).scalars().all()
+            counts: Dict[str, int] = {}
+            for d in rows:
+                counts[d] = counts.get(d, 0) + 1
+            return counts
+
     def delete_source_dump(self, dump_id: str) -> bool:
         self.initialize_storage()
         with self._session() as db:
@@ -400,6 +437,8 @@ class ContentService:
                 return False
             db.delete(record)
             return True
+
+    # ── Generation ───────────────────────────────────────────────────
 
     def _create_generation_run(self, channel_id: str, dates: List[str]) -> Dict[str, Any]:
         run_id = str(uuid4())
@@ -422,11 +461,12 @@ class ContentService:
         channel_id: str,
         date_key: str,
         model: Optional[str] = None,
+        search_additional: bool = True,
     ) -> Dict[str, Any]:
         self.validate_ollama_runtime_config(model)
         self.initialize_storage()
         run_data = self._create_generation_run(channel_id, [date_key])
-        asyncio.create_task(self._run_day_generation(run_data["run_id"], channel_id, date_key, model))
+        asyncio.create_task(self._run_day_generation(run_data["run_id"], channel_id, date_key, model, search_additional))
         return run_data
 
     async def generate_day(
@@ -435,6 +475,7 @@ class ContentService:
         date_key: str,
         model: Optional[str] = None,
         run_id: Optional[str] = None,
+        search_additional: bool = True,
     ) -> Dict[str, Any]:
         ollama_config = self.validate_ollama_runtime_config(model)
         self.initialize_storage()
@@ -460,7 +501,20 @@ class ContentService:
         topic = override.get("topic") or f"{pillar} for {channel_payload['name']}"
         special_instructions = override.get("special_instructions", "")
         mode = override.get("mode", "pre_generated")
+        override_search = override.get("search_additional", True)
         raw_sources = date_sources if mode == "source_dump" else [*(channel_payload.get("sources") or []), *date_sources]
+
+        # Build memory context
+        memory_context = self._memory.build_memory_context(
+            channel_id=channel_id,
+            context_notes=channel_payload.get("context_notes", ""),
+            topic=topic,
+        )
+
+        # SearXNG search preferences
+        searxng_categories = str(self._settings.get("searxng_categories", "general"))
+        searxng_time_range = str(self._settings.get("searxng_time_range", "any"))
+        searxng_max_results = int(self._settings.get("searxng_max_results", 4))
 
         if run_id:
             await emit_run_event(
@@ -491,7 +545,12 @@ class ContentService:
             "error": "",
             "model": ollama_config["model_name"],
             "ollama_base_url": ollama_config["base_url"],
-            "searx_url": (self._settings.get("searxng_url") or "").rstrip("/"),
+            "searx_url": str(self._settings.get("searxng_url") or "").rstrip("/"),
+            "search_additional": search_additional and override_search,
+            "searxng_categories": searxng_categories,
+            "searxng_time_range": searxng_time_range,
+            "searxng_max_results": searxng_max_results,
+            "memory_context": memory_context,
             "run_id": run_id,
             "agent_logs": [],
         }
@@ -511,6 +570,7 @@ class ContentService:
             if existing:
                 existing.pillar = pillar
                 existing.topic = topic
+                existing.platform = channel_payload.get("platform", "whatsapp")
                 existing.content = formatted
                 existing.status = "draft"
                 existing.updated_at = now
@@ -522,6 +582,7 @@ class ContentService:
                     date=date_key,
                     pillar=pillar,
                     topic=topic,
+                    platform=channel_payload.get("platform", "whatsapp"),
                     status="draft",
                     content=formatted,
                     chat_history=[],
@@ -538,6 +599,7 @@ class ContentService:
         channel_id: str,
         date_key: str,
         model: Optional[str],
+        search_additional: bool = True,
     ) -> None:
         with self._session() as db:
             run = db.get(GenerationRunRecord, run_id)
@@ -548,7 +610,7 @@ class ContentService:
 
         error_message = ""
         try:
-            await self.generate_day(channel_id, date_key, model, run_id)
+            await self.generate_day(channel_id, date_key, model, run_id, search_additional)
             await emit_run_event(
                 run_id,
                 {
@@ -660,6 +722,8 @@ class ContentService:
             record = db.get(GenerationRunRecord, run_id)
             return self._serialize_run(record) if record else None
 
+    # ── Review Queue ─────────────────────────────────────────────────
+
     def list_review_items(self, channel_id: Optional[str] = None) -> List[Dict[str, Any]]:
         self.initialize_storage()
         with self._session() as db:
@@ -677,10 +741,26 @@ class ContentService:
                 return None
             if "content" in updates:
                 record.content = updates["content"]
+            old_status = record.status
             if "status" in updates:
                 record.status = updates["status"]
             record.updated_at = datetime.utcnow()
             db.add(record)
+
+            # Episodic memory: when a post is marked "ready", store it
+            if updates.get("status") == "ready" and old_status != "ready":
+                content_snippet = (record.content or "")[:300]
+                try:
+                    self._memory.store_episodic_memory(
+                        channel_id=record.channel_id,
+                        topic=record.topic or "",
+                        pillar=record.pillar or "",
+                        content_summary=content_snippet,
+                        date=record.date,
+                    )
+                except Exception as exc:
+                    print(f"Failed to store episodic memory: {exc}")
+
             return self._serialize_review_item(record)
 
     def delete_review_item(self, item_id: str) -> bool:
@@ -703,6 +783,7 @@ class ContentService:
                 return None
             current_content = existing.content
             chat_history = list(existing.chat_history or [])
+            channel_id = existing.channel_id
 
         prompt = (
             "You are refining content. Update the following post based on user instructions.\n\n"
@@ -738,10 +819,28 @@ class ContentService:
                     record.updated_at = datetime.utcnow()
                     db.add(record)
                     db.flush()
+
+                    # Store preference memory
+                    try:
+                        self._memory.store_preference_memory(channel_id, instruction)
+                    except Exception as exc:
+                        print(f"Failed to store preference memory: {exc}")
+
                     return self._serialize_review_item(record)
         except Exception as exc:
             print(f"Refinement failed: {exc}")
         return None
+
+    # ── Memory ───────────────────────────────────────────────────────
+
+    def list_memories(self, channel_id: str, memory_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        return self._memory.list_memories(channel_id, memory_type)
+
+    def add_memory(self, channel_id: str, memory_type: str, content: str) -> Dict[str, Any]:
+        return self._memory.add_memory(channel_id, memory_type, content)
+
+    def delete_memory(self, memory_id: str) -> bool:
+        return self._memory.delete_memory(memory_id)
 
 
 content_service = ContentService()

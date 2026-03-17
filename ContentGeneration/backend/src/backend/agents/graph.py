@@ -33,6 +33,11 @@ class AgentState(TypedDict):
     model: Optional[str]
     ollama_base_url: Optional[str]
     searx_url: Optional[str]
+    search_additional: bool
+    searxng_categories: str
+    searxng_time_range: str
+    searxng_max_results: int
+    memory_context: str
     run_id: Optional[str]
     agent_logs: List[Dict[str, Any]]
 
@@ -98,6 +103,10 @@ async def research_node(state: AgentState) -> Dict[str, Any]:
         raw_sources=state.get("raw_sources") or [],
         searx_url=state.get("searx_url") or "",
         mode=state.get("mode") or "pre_generated",
+        search_additional=state.get("search_additional", True),
+        searxng_categories=state.get("searxng_categories", ""),
+        searxng_time_range=state.get("searxng_time_range", ""),
+        searxng_max_results=state.get("searxng_max_results", 4),
         log_cb=_research_log,
     )
 
@@ -184,6 +193,8 @@ async def writer_node(state: AgentState) -> Dict[str, Any]:
     channel = state.get("channel", {})
     context = state.get("summarized_context") or state.get("scraped_data", "")
 
+    memory_context = state.get("memory_context", "")
+
     prompt = (
         f"You are an expert content writer for the channel '{channel.get('name')}'.\n"
         f"Platform: {channel.get('platform')}\n"
@@ -193,6 +204,8 @@ async def writer_node(state: AgentState) -> Dict[str, Any]:
         f"Topic: {state.get('topic')}\n\n"
         f"--- RESEARCH CONTEXT ---\n{context[:7000]}\n\n"
     )
+    if memory_context:
+        prompt += f"--- CHANNEL MEMORY & CONTEXT ---\n{memory_context}\n\n"
     if state.get("special_instructions"):
         prompt += f"Special instructions: {state['special_instructions']}\n"
     if channel.get("prompt_template"):

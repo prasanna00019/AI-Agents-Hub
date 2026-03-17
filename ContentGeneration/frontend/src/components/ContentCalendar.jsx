@@ -23,6 +23,7 @@ export function ContentCalendar({
   weeklyTemplateDraft,
   reviewQueue,
   setOverrideForm,
+  sourceDumpCounts = {},
 }) {
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
@@ -119,6 +120,8 @@ export function ContentCalendar({
           const status = reviewItem?.status || (override.mode === 'source_dump' ? 'collecting' : 'empty');
           const badge = STATUS_BADGES[status] || STATUS_BADGES.empty;
 
+          const dumpCount = sourceDumpCounts[dateStr] || 0;
+
           return (
             <button
               key={dateStr + idx}
@@ -154,6 +157,13 @@ export function ContentCalendar({
                 <span className={`mt-auto inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider`}>
                   <span className={`h-1.5 w-1.5 rounded-full ${badge.dot}`} />
                   {badge.label}
+                </span>
+              )}
+
+              {/* Source dump count badge */}
+              {isCurrentMonth && dumpCount > 0 && (
+                <span className="absolute left-1.5 bottom-1.5 inline-flex items-center gap-0.5 rounded-md bg-indigo-100 px-1.5 py-0.5 text-[9px] font-bold text-indigo-600" title={`${dumpCount} source(s) dumped`}>
+                  📎 {dumpCount}
                 </span>
               )}
 

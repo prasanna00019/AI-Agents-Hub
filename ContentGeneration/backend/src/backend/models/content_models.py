@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Column, DateTime, Float, JSON, String, Text, UniqueConstraint
 
 from src.backend.db.database import Base
 
@@ -18,6 +18,7 @@ class ChannelRecord(Base):
     prompt_template = Column(Text, nullable=False, default="")
     weekly_template = Column(JSON, nullable=False, default=dict)
     overrides = Column(JSON, nullable=False, default=dict)
+    context_notes = Column(Text, nullable=False, default="")  # persistent channel memory
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)
 
@@ -33,6 +34,7 @@ class ReviewItemRecord(Base):
     date = Column(String, nullable=False, index=True)  # YYYY-MM-DD
     pillar = Column(String, nullable=False, default="")
     topic = Column(Text, nullable=False, default="")
+    platform = Column(String, nullable=False, default="whatsapp")
     status = Column(String, nullable=False, default="draft")  # draft, ready
     content = Column(Text, nullable=False, default="")
     chat_history = Column(JSON, nullable=False, default=list)
@@ -64,3 +66,17 @@ class GenerationRunRecord(Base):
     logs = Column(JSON, nullable=False, default=list)
     dates = Column(JSON, nullable=False, default=list)  # list of date strings being generated
     error = Column(Text, nullable=False, default="")
+
+
+class MemoryRecord(Base):
+    """Stores episodic / preference / contextual memories per channel."""
+    __tablename__ = "memories"
+
+    id = Column(String, primary_key=True, index=True)
+    channel_id = Column(String, nullable=False, index=True)
+    type = Column(String, nullable=False, default="contextual")  # episodic, preference, contextual
+    content = Column(Text, nullable=False, default="")
+    metadata_json = Column(JSON, nullable=False, default=dict)  # extra info (topic, date, score, etc.)
+    embedding_text = Column(Text, nullable=False, default="")   # text used for embedding search
+    relevance_score = Column(Float, nullable=False, default=1.0)
+    created_at = Column(DateTime, nullable=False)

@@ -17,6 +17,7 @@ src/backend/models/content_models.py
 src/backend/services/__init__.py
 src/backend/services/content_service.py
 src/backend/services/docker_service.py
+src/backend/services/memory_service.py
 src/backend/services/research_pipeline.py
 src/backend/services/run_events.py
 src/backend/utils/__init__.py

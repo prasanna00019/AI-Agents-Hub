@@ -8,6 +8,7 @@ import { ContentCalendar } from './components/ContentCalendar'
 import { LoadingOverlay, SkeletonCard, InlineLoader } from './components/Loading'
 import { AgentProgress } from './components/AgentProgress'
 import { Sidebar, MobileHeader } from './components/Sidebar'
+import { FormattedPreview } from './components/FormattedPreview'
 
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
 const DEFAULT_TEMPLATE = {
@@ -29,6 +30,9 @@ const EMPTY_SETTINGS = {
   ollama_base_url: '',
   default_ollama_model: '',
   searxng_url: '',
+  searxng_categories: 'general',
+  searxng_max_results: 4,
+  searxng_time_range: 'any',
 }
 
 const normalizeUrlInput = (value) => value.trim().replace(/\/+$/, '')
@@ -69,9 +73,19 @@ function App() {
 
   const [channelForm, setChannelForm] = useState(CHANNEL_INIT)
   const [weeklyTemplateDraft, setWeeklyTemplateDraft] = useState({ ...DEFAULT_TEMPLATE })
-  const [overrideForm, setOverrideForm] = useState({ date: '', pillar: '', topic: '', special_instructions: '', mode: 'pre_generated' })
+  const [overrideForm, setOverrideForm] = useState({ date: '', pillar: '', topic: '', special_instructions: '', mode: 'pre_generated', search_additional: true })
   const [sourceDumps, setSourceDumps] = useState([])
   const [newSourceDump, setNewSourceDump] = useState({ type: 'url', label: '', raw_content: '' })
+
+  // Channel editing
+  const [editingChannel, setEditingChannel] = useState(null)
+
+  // Memory
+  const [channelMemories, setChannelMemories] = useState([])
+  const [newContextNote, setNewContextNote] = useState('')
+
+  // Source dump counts for calendar
+  const [sourceDumpCounts, setSourceDumpCounts] = useState({})
   const [isMobileOpen, setMobileOpen] = useState(false)
   const [searxngStatus, setSearxngStatus] = useState({ running: false, configured: false, controllable: false, url: '', port: null })
 
@@ -277,6 +291,77 @@ function App() {
     finally { setCreatingChannel(false) }
   }
 
+  const openEditChannel = (ch) => {
+    setEditingChannel({
+      id: ch.id,
+      name: ch.name,
+      description: ch.description || '',
+      audience: ch.audience || '',
+      tone: ch.tone || 'Educational',
+      platform: ch.platform || 'whatsapp',
+      language: ch.language || 'en',
+      timezone: ch.timezone || 'UTC',
+      sources_text: (ch.sources || []).join('\n'),
+      prompt_template: ch.prompt_template || '',
+      context_notes: ch.context_notes || '',
+    })
+  }
+
+  const saveEditChannel = async () => {
+    if (!editingChannel) return
+    try {
+      const payload = {
+        ...editingChannel,
+        sources: editingChannel.sources_text.split('\n').map(l => l.trim()).filter(Boolean),
+      }
+      delete payload.sources_text
+      delete payload.id
+      await callApi(`/api/v1/channels/${editingChannel.id}`, { method: 'PUT', body: JSON.stringify(payload) })
+      await loadChannels()
+      setEditingChannel(null)
+      feedback('Channel updated', 'success')
+    } catch (e) { feedback(e.message, 'error') }
+  }
+
+  // ── Memory ──────────────────────────────────────────────────────
+  const loadMemories = useCallback(async (chId) => {
+    if (!chId) return
+    try { const d = await callApi(`/api/v1/channels/${chId}/memory`); setChannelMemories(d) } catch { }
+  }, [callApi])
+
+  const addContextNote = async () => {
+    if (!selectedChannelId || !newContextNote.trim()) return
+    try {
+      await callApi(`/api/v1/channels/${selectedChannelId}/memory`, {
+        method: 'POST',
+        body: JSON.stringify({ type: 'contextual', content: newContextNote.trim() }),
+      })
+      setNewContextNote('')
+      await loadMemories(selectedChannelId)
+      feedback('Context note added', 'success')
+    } catch (e) { feedback(e.message, 'error') }
+  }
+
+  const deleteMemory = async (memId) => {
+    if (!selectedChannelId) return
+    try {
+      await callApi(`/api/v1/channels/${selectedChannelId}/memory/${memId}`, { method: 'DELETE' })
+      await loadMemories(selectedChannelId)
+      feedback('Memory removed', 'success')
+    } catch (e) { feedback(e.message, 'error') }
+  }
+
+  // Load memories when channel changes
+  useEffect(() => { if (selectedChannelId) loadMemories(selectedChannelId) }, [selectedChannelId]) // eslint-disable-line
+
+  // Load source dump counts for calendar
+  const loadSourceDumpCounts = useCallback(async (chId) => {
+    if (!chId) return
+    try { const d = await callApi(`/api/v1/channels/${chId}/source-dump-counts`); setSourceDumpCounts(d) } catch { }
+  }, [callApi])
+
+  useEffect(() => { if (selectedChannelId) loadSourceDumpCounts(selectedChannelId) }, [selectedChannelId]) // eslint-disable-line
+
   const deleteChannel = async (id) => {
     if (!window.confirm('Delete this channel? This cannot be undone.')) return
     try {
@@ -357,7 +442,11 @@ function App() {
       })
       const result = await callApi(`/api/v1/channels/${selectedChannelId}/generate-day`, {
         method: 'POST',
-        body: JSON.stringify({ date: targetDate, model: generateModel || settings.default_ollama_model }),
+        body: JSON.stringify({
+          date: targetDate,
+          model: generateModel || settings.default_ollama_model,
+          search_additional: overrideForm.search_additional !== false,
+        }),
       })
 
       if (result.run_id) {
@@ -366,6 +455,7 @@ function App() {
             setGeneratingDay(false)
             await loadChannels()
             await loadReviewQueue(selectedChannelId)
+            await loadSourceDumpCounts(selectedChannelId)
             setOverrideForm(p => ({ ...p, date: '' }))
             setActiveView('review')
             feedback(`Content generated for ${targetDate}`, 'success')
@@ -487,6 +577,7 @@ function App() {
         topic: dayData.topic || '',
         special_instructions: dayData.special_instructions || '',
         mode: dayData.mode || 'pre_generated',
+        search_additional: dayData.search_additional !== false,
       })
     }
   }
@@ -516,17 +607,7 @@ function App() {
     const matchesStatus = reviewFilterStatus === 'all' || item.status === reviewFilterStatus
     return matchesDate && matchesStatus
   })
-  const renderFormattedPreview = (content) => {
-    const blocks = content.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean)
-    if (blocks.length === 0) {
-      return <p className="text-sm text-slate-400">No content yet.</p>
-    }
-    return blocks.map((block, index) => (
-      block === '---'
-        ? <hr key={`${block}-${index}`} className="border-slate-200" />
-        : <p key={`${block.slice(0, 20)}-${index}`} className="whitespace-pre-wrap text-sm leading-7 text-slate-700">{block}</p>
-    ))
-  }
+  // renderFormattedPreview replaced by FormattedPreview component
 
   return (
     <div className="h-screen overflow-hidden bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 font-sans text-slate-800 antialiased">
@@ -665,6 +746,7 @@ function App() {
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="rounded-lg bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 border border-slate-100">{ch.platform}</span>
+                          <SecondaryButton onClick={(e) => { e.stopPropagation(); openEditChannel(ch) }} className="!py-1 !px-2.5 !text-[11px]">Edit</SecondaryButton>
                           <DangerButton onClick={(e) => { e.stopPropagation(); deleteChannel(ch.id) }} className="!py-1 !px-2.5 !text-[11px]">Delete</DangerButton>
                         </div>
                       </div>
@@ -732,6 +814,51 @@ function App() {
                   {(generating || agentLogs.length > 0) && (
                     <AgentProgress logs={agentLogs} isRunning={generating} />
                   )}
+
+                  {/* Channel Memory */}
+                  <Panel title="Channel Memory" subtitle="Persistent context notes and learned preferences injected into every generation.">
+                    <div className="space-y-4">
+                      {/* Add context note */}
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <input
+                          className={`${inputClass} flex-1`}
+                          placeholder="Add a persistent context note (e.g., 'Always mention our focus on privacy')..."
+                          value={newContextNote}
+                          onChange={e => setNewContextNote(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') addContextNote() }}
+                        />
+                        <PrimaryButton onClick={addContextNote}>Add Note</PrimaryButton>
+                      </div>
+
+                      {/* Memory list */}
+                      {channelMemories.length === 0 ? (
+                        <EmptyState text="No memories yet. Context notes you add will be injected into every generation. Approved posts and refinements are auto-remembered." icon="🧠" />
+                      ) : (
+                        <div className="space-y-2 max-h-72 overflow-y-auto">
+                          {channelMemories.map(mem => (
+                            <div key={mem.id} className={`flex items-start justify-between rounded-xl border px-4 py-3 ${
+                              mem.type === 'contextual' ? 'border-indigo-100 bg-indigo-50/50'
+                              : mem.type === 'episodic' ? 'border-emerald-100 bg-emerald-50/50'
+                              : 'border-amber-100 bg-amber-50/50'
+                            }`}>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                                    mem.type === 'contextual' ? 'bg-indigo-100 text-indigo-700'
+                                    : mem.type === 'episodic' ? 'bg-emerald-100 text-emerald-700'
+                                    : 'bg-amber-100 text-amber-700'
+                                  }`}>{mem.type}</span>
+                                  <span className="text-[10px] text-slate-400">{new Date(mem.created_at).toLocaleDateString()}</span>
+                                </div>
+                                <p className="text-sm text-slate-700 truncate">{mem.content}</p>
+                              </div>
+                              <DangerButton onClick={() => deleteMemory(mem.id)} className="!py-1 !px-2 !text-[10px] ml-2 shrink-0">×</DangerButton>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </Panel>
                 </>
               )}
             </div>
@@ -751,6 +878,7 @@ function App() {
                     weeklyTemplateDraft={weeklyTemplateDraft}
                     reviewQueue={reviewQueue}
                     setOverrideForm={handleCalendarDayClick}
+                    sourceDumpCounts={sourceDumpCounts}
                   />
                 </Panel>
               )}
@@ -813,7 +941,7 @@ function App() {
                             <div className="mt-4 grid gap-4 xl:grid-cols-2">
                               <div className="rounded-xl border border-slate-100 bg-white p-4">
                                 <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">Formatted Preview</p>
-                                <div className="max-h-[420px] space-y-3 overflow-y-auto">{renderFormattedPreview(item.content)}</div>
+                                <div className="max-h-[420px] overflow-y-auto"><FormattedPreview content={item.content} platform={item.platform || selectedChannel?.platform || 'whatsapp'} /></div>
                               </div>
 
                               <div className="space-y-4 rounded-xl border border-slate-100 bg-white p-4">
@@ -875,6 +1003,26 @@ function App() {
                     </select>
                   </Field>
                   <Field label="SearXNG URL"><input className={inputClass} value={settings.searxng_url || ''} onChange={e => setSettings(p => ({ ...p, searxng_url: e.target.value }))} placeholder="http://localhost:8080" /></Field>
+                </div>
+                <div className="mt-4">
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">SearXNG Search Preferences</p>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <Field label="Search Categories" help="Comma-separated: general, news, science, it">
+                      <input className={inputClass} value={settings.searxng_categories || 'general'} onChange={e => setSettings(p => ({ ...p, searxng_categories: e.target.value }))} placeholder="general, news" />
+                    </Field>
+                    <Field label="Max Results">
+                      <input className={inputClass} type="number" min={1} max={20} value={settings.searxng_max_results || 4} onChange={e => setSettings(p => ({ ...p, searxng_max_results: parseInt(e.target.value) || 4 }))} />
+                    </Field>
+                    <Field label="Time Range">
+                      <select className={inputClass} value={settings.searxng_time_range || 'any'} onChange={e => setSettings(p => ({ ...p, searxng_time_range: e.target.value }))}>
+                        <option value="any">Any time</option>
+                        <option value="day">Past day</option>
+                        <option value="week">Past week</option>
+                        <option value="month">Past month</option>
+                        <option value="year">Past year</option>
+                      </select>
+                    </Field>
+                  </div>
                 </div>
                 <div className="mt-5 flex flex-wrap gap-3">
                   <PrimaryButton onClick={saveSettings} loading={savingSettings}>Save Settings</PrimaryButton>
@@ -945,6 +1093,17 @@ function App() {
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-500">Daily Research Generation</p>
               <h4 className="mt-2 text-base font-bold text-slate-900">Topic + your sources + SearXNG</h4>
               <p className="mt-2 text-sm text-slate-600">Use this for a normal day. You can add links or text below, and the pipeline will scrape those sources, search for more sources with SearXNG, then run RAG before writing the final post.</p>
+              {overrideForm.mode === 'pre_generated' && (
+                <label className="mt-3 flex items-center gap-2 cursor-pointer" onClick={e => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={overrideForm.search_additional !== false}
+                    onChange={e => setOverrideForm(p => ({ ...p, search_additional: e.target.checked }))}
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span className="text-xs text-slate-600">Search SearXNG for additional sources</span>
+                </label>
+              )}
             </button>
             <button
               type="button"
@@ -1064,6 +1223,42 @@ function App() {
                   mode: 'pre_generated',
                 })
               }}>Plan This Day</PrimaryButton>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Edit Channel Modal ────────────────────────────────────── */}
+      <Modal
+        isOpen={!!editingChannel}
+        onClose={() => setEditingChannel(null)}
+        title={`Edit Channel: ${editingChannel?.name || ''}`}
+        wide
+      >
+        {editingChannel && (
+          <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Channel Name"><input className={inputClass} value={editingChannel.name} onChange={e => setEditingChannel(p => ({ ...p, name: e.target.value }))} /></Field>
+              <Field label="Audience"><input className={inputClass} value={editingChannel.audience} onChange={e => setEditingChannel(p => ({ ...p, audience: e.target.value }))} /></Field>
+              <Field label="Tone"><input className={inputClass} value={editingChannel.tone} onChange={e => setEditingChannel(p => ({ ...p, tone: e.target.value }))} /></Field>
+              <Field label="Platform">
+                <select className={inputClass} value={editingChannel.platform} onChange={e => setEditingChannel(p => ({ ...p, platform: e.target.value }))}>
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="telegram">Telegram</option>
+                  <option value="linkedin">LinkedIn</option>
+                  <option value="twitter">Twitter/X</option>
+                </select>
+              </Field>
+              <Field label="Language"><input className={inputClass} value={editingChannel.language} onChange={e => setEditingChannel(p => ({ ...p, language: e.target.value }))} /></Field>
+              <Field label="Timezone"><input className={inputClass} value={editingChannel.timezone} onChange={e => setEditingChannel(p => ({ ...p, timezone: e.target.value }))} /></Field>
+            </div>
+            <Field label="Description"><textarea className={textareaClass} rows={3} value={editingChannel.description} onChange={e => setEditingChannel(p => ({ ...p, description: e.target.value }))} /></Field>
+            <Field label="Sources" help="One URL or search query per line."><textarea className={textareaClass} rows={4} value={editingChannel.sources_text} onChange={e => setEditingChannel(p => ({ ...p, sources_text: e.target.value }))} /></Field>
+            <Field label="Prompt Template"><textarea className={textareaClass} rows={4} value={editingChannel.prompt_template} onChange={e => setEditingChannel(p => ({ ...p, prompt_template: e.target.value }))} /></Field>
+            <Field label="Context Notes" help="Persistent notes injected into every generation prompt."><textarea className={textareaClass} rows={3} value={editingChannel.context_notes} onChange={e => setEditingChannel(p => ({ ...p, context_notes: e.target.value }))} /></Field>
+            <div className="flex gap-3">
+              <PrimaryButton onClick={saveEditChannel}>Save Changes</PrimaryButton>
+              <SecondaryButton onClick={() => setEditingChannel(null)}>Cancel</SecondaryButton>
             </div>
           </div>
         )}
