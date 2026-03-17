@@ -9,7 +9,7 @@ import { LoadingOverlay, SkeletonCard, InlineLoader } from './components/Loading
 import { AgentProgress } from './components/AgentProgress'
 import { Sidebar, MobileHeader } from './components/Sidebar'
 
-const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
+const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
 const DEFAULT_TEMPLATE = {
   monday: 'Concept Deep Dive',
   tuesday: 'Tool Spotlight',
@@ -24,6 +24,14 @@ const CHANNEL_INIT = {
   platform: 'whatsapp', language: 'en', timezone: 'UTC',
   prompt_template: '', sources_text: '',
 }
+const EMPTY_SETTINGS = {
+  database_url: '',
+  ollama_base_url: '',
+  default_ollama_model: '',
+  searxng_url: '',
+}
+
+const normalizeUrlInput = (value) => value.trim().replace(/\/+$/, '')
 
 function App() {
   const api = useMemo(() => import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000', [])
@@ -36,20 +44,36 @@ function App() {
   const [channels, setChannels] = useState([])
   const [selectedChannelId, setSelectedChannelId] = useState('')
   const [reviewQueue, setReviewQueue] = useState([])
+  const [reviewFilterDate, setReviewFilterDate] = useState('')
+  const [reviewFilterStatus, setReviewFilterStatus] = useState('all')
   const [refineInputs, setRefineInputs] = useState({})
   const [generateModel, setGenerateModel] = useState('')
   const [generateStartDate, setGenerateStartDate] = useState(new Date().toISOString().slice(0, 10))
-  const [settings, setSettings] = useState({
-    database_url: '', ollama_base_url: 'http://localhost:11434',
-    default_ollama_model: '', searxng_url: 'http://localhost:8080',
+  const [settings, setSettings] = useState(() => {
+    const saved = localStorage.getItem('contentpilot_settings')
+    if (saved) {
+      try { 
+        return {
+          ...EMPTY_SETTINGS,
+          ...JSON.parse(saved)
+        }
+      } catch (e) { }
+    }
+    return { ...EMPTY_SETTINGS }
   })
+
+  // Persist settings to local storage whenever they change
+  useEffect(() => {
+    localStorage.setItem('contentpilot_settings', JSON.stringify(settings))
+  }, [settings])
+
   const [channelForm, setChannelForm] = useState(CHANNEL_INIT)
   const [weeklyTemplateDraft, setWeeklyTemplateDraft] = useState({ ...DEFAULT_TEMPLATE })
   const [overrideForm, setOverrideForm] = useState({ date: '', pillar: '', topic: '', special_instructions: '', mode: 'pre_generated' })
   const [sourceDumps, setSourceDumps] = useState([])
   const [newSourceDump, setNewSourceDump] = useState({ type: 'text', label: '', raw_content: '' })
   const [isMobileOpen, setMobileOpen] = useState(false)
-  const [searxngStatus, setSearxngStatus] = useState({ running: false })
+  const [searxngStatus, setSearxngStatus] = useState({ running: false, configured: false, controllable: false, url: '', port: null })
 
   // Loading states
   const [generating, setGenerating] = useState(false)
@@ -58,9 +82,11 @@ function App() {
   const [loadingReview, setLoadingReview] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
   const [creatingChannel, setCreatingChannel] = useState(false)
+  const [agentLogs, setAgentLogs] = useState([])
+  const [togglingSearxng, setTogglingSearxng] = useState(false)
+  const [testingDb, setTestingDb] = useState(false)
   const [refiningId, setRefiningId] = useState(null)
   const [generatingDay, setGeneratingDay] = useState(false)
-  const [agentLogs, setAgentLogs] = useState([])
 
   // Calendar day detail modal (separate from override modal)
   const [dayDetailDate, setDayDetailDate] = useState('')
@@ -77,9 +103,23 @@ function App() {
 
   // ── API helper ─────────────────────────────────────────────────────
   const callApi = useCallback(async (path, opts = {}) => {
-    const resp = await fetch(`${api}${path}`, { headers: { 'Content-Type': 'application/json' }, ...opts })
-    if (!resp.ok) { const t = await resp.text(); throw new Error(t || `Request failed: ${resp.status}`) }
-    return resp.json()
+    const controller = new AbortController()
+    const id = setTimeout(() => controller.abort(), 30000) // 30s timeout
+    
+    try {
+      const resp = await fetch(`${api}${path}`, { 
+        headers: { 'Content-Type': 'application/json' }, 
+        signal: controller.signal,
+        ...opts 
+      })
+      clearTimeout(id)
+      if (!resp.ok) { const t = await resp.text(); throw new Error(t || `Request failed: ${resp.status}`) }
+      return resp.json()
+    } catch (e) {
+      clearTimeout(id)
+      if (e.name === 'AbortError') throw new Error('Request timed out after 30 seconds')
+      throw e
+    }
   }, [api])
 
   // ── Boot ───────────────────────────────────────────────────────────
@@ -88,18 +128,37 @@ function App() {
   }, [callApi])
 
   const loadSettings = useCallback(async () => {
-    const d = await callApi('/api/v1/settings'); setSettings(d); return d
+    const d = await callApi('/api/v1/settings')
+    const nextSettings = { ...EMPTY_SETTINGS, ...d }
+    setSettings(nextSettings)
+    return nextSettings
   }, [callApi])
 
-  const loadModels = useCallback(async () => {
+  const loadModels = useCallback(async ({ baseUrl = '', defaultModel = '', silent = false } = {}) => {
     setLoadingModels(true)
     try {
-      const d = await callApi('/api/v1/ollama/models')
+      const normalizedBaseUrl = normalizeUrlInput(baseUrl)
+      if (!normalizedBaseUrl) {
+        setModels([])
+        return { ok: false, models: [], base_url: '', message: 'Ollama Base URL is not configured.' }
+      }
+
+      const d = await callApi(`/api/v1/ollama/models?base_url=${encodeURIComponent(normalizedBaseUrl)}`)
       setModels(d.models || [])
-      if (d.models?.length > 0 && !settings.default_ollama_model)
-        setSettings(p => ({ ...p, default_ollama_model: d.models[0] }))
+
+      if (d.ok === false && d.message && !silent) {
+        feedback(`Ollama error: ${d.message}`, 'error')
+      }
+
+      if (d.models?.length > 0 && !defaultModel) {
+        setSettings(p => (p.default_ollama_model ? p : { ...p, default_ollama_model: d.models[0] }))
+      }
+      return d
+    } catch (e) {
+      if (!silent) feedback(e.message, 'error')
+      return { ok: false, models: [], base_url: normalizeUrlInput(baseUrl), message: e.message }
     } finally { setLoadingModels(false) }
-  }, [callApi, settings.default_ollama_model])
+  }, [callApi, feedback])
 
   const loadChannels = useCallback(async () => {
     setLoadingChannels(true)
@@ -118,24 +177,43 @@ function App() {
   }, [callApi])
 
   const loadSearxngStatus = useCallback(async () => {
-    try { const d = await callApi('/api/v1/searxng/status'); setSearxngStatus(d) } catch {}
+    try { const d = await callApi('/api/v1/searxng/status'); setSearxngStatus(d) } catch { }
   }, [callApi])
 
   useEffect(() => {
-    (async () => {
-      await loadHealth()
-      await loadSettings()
-      await loadModels()
-      await loadChannels()
-      await loadSearxngStatus()
-    })().catch(e => feedback(e.message, 'error'))
-  }, []) // eslint-disable-line
+    let mounted = true
+    const boot = async () => {
+      setHealth('checking')
+      try {
+        await loadHealth()
+        const s = await loadSettings()
+        if (s?.ollama_base_url && mounted) {
+          await loadModels({
+            baseUrl: s.ollama_base_url,
+            defaultModel: s.default_ollama_model,
+            silent: true,
+          })
+        } else if (mounted) {
+          setModels([])
+        }
+      } catch (e) {
+        if (mounted) feedback(`Boot error: ${e.message}`, 'error')
+      }
+      
+      if (mounted) {
+        loadChannels()
+        loadSearxngStatus()
+      }
+    }
+    boot()
+    return () => { mounted = false }
+  }, [loadHealth, loadSettings, loadModels, loadChannels, loadSearxngStatus, feedback]) // eslint-disable-line
 
   useEffect(() => { loadReviewQueue(selectedChannelId).catch(e => feedback(e.message, 'error')) }, [selectedChannelId]) // eslint-disable-line
 
   const loadSourceDumps = useCallback(async (chId, dateKey) => {
     if (!chId || !dateKey) return
-    try { const d = await callApi(`/api/v1/channels/${chId}/source-dumps?date=${dateKey}`); setSourceDumps(d) } catch {}
+    try { const d = await callApi(`/api/v1/channels/${chId}/source-dumps?date=${dateKey}`); setSourceDumps(d) } catch { }
   }, [callApi])
 
   useEffect(() => { if (selectedChannelId && overrideForm.date) loadSourceDumps(selectedChannelId, overrideForm.date) }, [selectedChannelId, overrideForm.date]) // eslint-disable-line
@@ -148,18 +226,40 @@ function App() {
   const saveSettings = async () => {
     setSavingSettings(true)
     try {
-      await callApi('/api/v1/settings', { method: 'PUT', body: JSON.stringify(settings) })
-      await loadModels()
+      const payload = {
+        ...settings,
+        database_url: settings.database_url.trim(),
+        ollama_base_url: normalizeUrlInput(settings.ollama_base_url || ''),
+        default_ollama_model: settings.default_ollama_model.trim(),
+        searxng_url: normalizeUrlInput(settings.searxng_url || ''),
+      }
+      const savedSettings = await callApi('/api/v1/settings', { method: 'PUT', body: JSON.stringify(payload) })
+      setSettings({ ...EMPTY_SETTINGS, ...savedSettings })
+      if (savedSettings.ollama_base_url) {
+        await loadModels({
+          baseUrl: savedSettings.ollama_base_url,
+          defaultModel: savedSettings.default_ollama_model,
+        })
+      } else {
+        setModels([])
+      }
+      await loadSearxngStatus()
       feedback('Settings saved', 'success')
     } catch (e) { feedback(e.message, 'error') }
     finally { setSavingSettings(false) }
   }
 
   const testDb = async () => {
+    setTestingDb(true)
     try {
+      if (!settings.database_url.trim()) {
+        feedback('Enter a database URL first', 'error')
+        return
+      }
       const r = await callApi(`/api/v1/settings/test-db?database_url=${encodeURIComponent(settings.database_url)}`)
       feedback(r.message, r.ok ? 'success' : 'error')
     } catch (e) { feedback(e.message, 'error') }
+    finally { setTestingDb(false) }
   }
 
   const createChannel = async () => {
@@ -257,7 +357,7 @@ function App() {
               setActiveView('review')
               feedback('Week generation complete', 'success')
             }
-          } catch {}
+          } catch { }
         }
         es.onerror = () => { es.close(); setGenerating(false); feedback('Generation stream disconnected', 'error') }
       }
@@ -296,16 +396,24 @@ function App() {
   const copyContent = async (content) => { await navigator.clipboard.writeText(content); feedback('Copied to clipboard', 'success') }
 
   const toggleSearxng = async () => {
+    const savedSearxngUrl = normalizeUrlInput(searxngStatus.url || '')
+    const currentSearxngUrl = normalizeUrlInput(settings.searxng_url || '')
+    if (savedSearxngUrl !== currentSearxngUrl) {
+      feedback('Save Settings before changing the SearXNG container state', 'error')
+      return
+    }
+
+    setTogglingSearxng(true)
     try {
-      if (searxngStatus.running) {
-        const r = await callApi('/api/v1/searxng/stop', { method: 'POST' })
-        feedback(r.message, r.ok ? 'success' : 'error')
-      } else {
-        const r = await callApi('/api/v1/searxng/start', { method: 'POST' })
-        feedback(r.message, r.ok ? 'success' : 'error')
-      }
+      const path = searxngStatus.running ? '/api/v1/searxng/stop' : '/api/v1/searxng/start'
+      const r = await callApi(path, { method: 'POST' })
+      feedback(r.message, r.ok ? 'success' : 'error')
       await loadSearxngStatus()
-    } catch (e) { feedback(e.message, 'error') }
+    } catch (e) { 
+      feedback(e.message, 'error') 
+    } finally {
+      setTogglingSearxng(false)
+    }
   }
 
   // Calendar day detail: save status from the day detail modal
@@ -343,6 +451,22 @@ function App() {
   const inputClass = 'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100'
   const textareaClass = inputClass
   const darkInputClass = 'w-full rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2.5 text-sm text-white outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-900'
+  const canRefreshModels = Boolean(normalizeUrlInput(settings.ollama_base_url || ''))
+  const refreshModels = () => loadModels({
+    baseUrl: settings.ollama_base_url,
+    defaultModel: settings.default_ollama_model,
+  })
+  const savedSearxngUrl = normalizeUrlInput(searxngStatus.url || '')
+  const currentSearxngUrl = normalizeUrlInput(settings.searxng_url || '')
+  const searxngSettingsDirty = savedSearxngUrl !== currentSearxngUrl
+  const canToggleSearxng = Boolean(searxngStatus.controllable) && !searxngSettingsDirty
+  const searxngStatusText = !searxngStatus.configured
+    ? 'Save a SearXNG URL first.'
+    : !searxngStatus.controllable
+      ? `Saved URL ${searxngStatus.url} needs an explicit port for Docker control.`
+      : searxngStatus.running
+        ? `Running at ${searxngStatus.url}`
+        : `Stopped. Ready to start at ${searxngStatus.url}`
 
   return (
     <div className="h-screen overflow-hidden bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 font-sans text-slate-800 antialiased">
@@ -362,11 +486,10 @@ function App() {
 
           {/* ── Toast ───────────────────────────────────────────── */}
           {notice && (
-            <div className={`animate-slide-in fixed right-4 top-4 z-[70] rounded-xl px-5 py-3 text-sm font-semibold shadow-lg ${
-              notice.tone === 'error' ? 'bg-rose-600 text-white' :
-              notice.tone === 'success' ? 'bg-emerald-600 text-white' :
-              'bg-slate-800 text-white'
-            }`}>
+            <div className={`animate-slide-in fixed right-4 top-4 z-[70] rounded-xl px-5 py-3 text-sm font-semibold shadow-lg ${notice.tone === 'error' ? 'bg-rose-600 text-white' :
+                notice.tone === 'success' ? 'bg-emerald-600 text-white' :
+                  'bg-slate-800 text-white'
+              }`}>
               {notice.message}
             </div>
           )}
@@ -582,67 +705,67 @@ function App() {
               <Panel title="Review Queue" subtitle="Edit, refine with AI, and copy-paste ready content.">
                 {loadingReview ? <InlineLoader text="Loading review queue..." /> :
                   reviewQueue.length === 0 ? <EmptyState text="No drafts yet. Generate content to populate the queue." icon="◎" /> : (
-                  <div className="space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto pr-1">
-                    {reviewQueue.map(item => (
-                      <article key={item.id} className="rounded-xl border border-slate-100 bg-slate-50/50 p-5 transition hover:shadow-sm">
-                        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                          <div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="rounded-lg bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 border border-slate-100">{item.date}</span>
-                              <span className="rounded-lg bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 border border-slate-100">{item.pillar}</span>
-                              <span className={`rounded-lg px-2.5 py-1 text-[11px] font-bold ${item.status === 'ready' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{item.status}</span>
+                    <div className="space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto pr-1">
+                      {reviewQueue.map(item => (
+                        <article key={item.id} className="rounded-xl border border-slate-100 bg-slate-50/50 p-5 transition hover:shadow-sm">
+                          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded-lg bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 border border-slate-100">{item.date}</span>
+                                <span className="rounded-lg bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 border border-slate-100">{item.pillar}</span>
+                                <span className={`rounded-lg px-2.5 py-1 text-[11px] font-bold ${item.status === 'ready' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{item.status}</span>
+                              </div>
+                              <h3 className="mt-2 text-base font-bold text-slate-900">{item.topic}</h3>
                             </div>
-                            <h3 className="mt-2 text-base font-bold text-slate-900">{item.topic}</h3>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <select
-                              className={`${inputClass} !w-auto`}
-                              value={item.status}
-                              onChange={e => setReviewQueue(p => p.map(r => r.id === item.id ? { ...r, status: e.target.value } : r))}
-                            >
-                              <option value="draft">Draft</option>
-                              <option value="ready">Ready</option>
-                            </select>
-                            <SecondaryButton onClick={() => saveReviewItem(item)}>Save</SecondaryButton>
-                            <PrimaryButton onClick={() => copyContent(item.content)}>Copy</PrimaryButton>
-                            <DangerButton onClick={() => deleteReviewItem(item.id)} className="!py-1.5 !px-3 !text-xs">Delete</DangerButton>
-                          </div>
-                        </div>
-
-                        <textarea
-                          className={`${textareaClass} mt-4 min-h-[200px] max-h-[400px] bg-white resize-y`}
-                          value={item.content}
-                          onChange={e => setReviewQueue(p => p.map(r => r.id === item.id ? { ...r, content: e.target.value } : r))}
-                        />
-
-                        {/* Refinement chat */}
-                        <div className="mt-4 rounded-xl border border-slate-100 bg-white p-4">
-                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Refinement Chat</p>
-                          <div className="flex flex-col gap-3 lg:flex-row">
-                            <input
-                              className={`${inputClass} flex-1`}
-                              placeholder="e.g. tighten the hook, reduce to 180 words"
-                              value={refineInputs[item.id] || ''}
-                              onChange={e => setRefineInputs(p => ({ ...p, [item.id]: e.target.value }))}
-                              onKeyDown={e => { if (e.key === 'Enter') refineItem(item.id) }}
-                            />
-                            <PrimaryButton onClick={() => refineItem(item.id)} loading={refiningId === item.id}>Refine with AI</PrimaryButton>
-                          </div>
-                          {item.chat_history?.length > 0 && (
-                            <div className="mt-3 space-y-1.5 max-h-32 overflow-y-auto rounded-lg bg-slate-50 p-3">
-                              {item.chat_history.map((entry, i) => (
-                                <div key={i} className="flex items-start gap-2 text-xs">
-                                  <span className="shrink-0 text-indigo-500 font-bold">→</span>
-                                  <span className="text-slate-600">{entry.instruction}</span>
-                                </div>
-                              ))}
+                            <div className="flex flex-wrap gap-2">
+                              <select
+                                className={`${inputClass} !w-auto`}
+                                value={item.status}
+                                onChange={e => setReviewQueue(p => p.map(r => r.id === item.id ? { ...r, status: e.target.value } : r))}
+                              >
+                                <option value="draft">Draft</option>
+                                <option value="ready">Ready</option>
+                              </select>
+                              <SecondaryButton onClick={() => saveReviewItem(item)}>Save</SecondaryButton>
+                              <PrimaryButton onClick={() => copyContent(item.content)}>Copy</PrimaryButton>
+                              <DangerButton onClick={() => deleteReviewItem(item.id)} className="!py-1.5 !px-3 !text-xs">Delete</DangerButton>
                             </div>
-                          )}
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                )}
+                          </div>
+
+                          <textarea
+                            className={`${textareaClass} mt-4 min-h-[200px] max-h-[400px] bg-white resize-y`}
+                            value={item.content}
+                            onChange={e => setReviewQueue(p => p.map(r => r.id === item.id ? { ...r, content: e.target.value } : r))}
+                          />
+
+                          {/* Refinement chat */}
+                          <div className="mt-4 rounded-xl border border-slate-100 bg-white p-4">
+                            <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Refinement Chat</p>
+                            <div className="flex flex-col gap-3 lg:flex-row">
+                              <input
+                                className={`${inputClass} flex-1`}
+                                placeholder="e.g. tighten the hook, reduce to 180 words"
+                                value={refineInputs[item.id] || ''}
+                                onChange={e => setRefineInputs(p => ({ ...p, [item.id]: e.target.value }))}
+                                onKeyDown={e => { if (e.key === 'Enter') refineItem(item.id) }}
+                              />
+                              <PrimaryButton onClick={() => refineItem(item.id)} loading={refiningId === item.id}>Refine with AI</PrimaryButton>
+                            </div>
+                            {item.chat_history?.length > 0 && (
+                              <div className="mt-3 space-y-1.5 max-h-32 overflow-y-auto rounded-lg bg-slate-50 p-3">
+                                {item.chat_history.map((entry, i) => (
+                                  <div key={i} className="flex items-start gap-2 text-xs">
+                                    <span className="shrink-0 text-indigo-500 font-bold">→</span>
+                                    <span className="text-slate-600">{entry.instruction}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
               </Panel>
             </div>
           )}
@@ -652,29 +775,29 @@ function App() {
           ═══════════════════════════════════════════════════════ */}
           {activeView === 'settings' && (
             <div className="space-y-5 animate-fade-in pb-6">
-              <Panel title="System Settings" subtitle="Configure database, model access, and search endpoints.">
+              <Panel title="System Settings" subtitle="Configure database, Ollama, and SearXNG from the UI and save them to the backend.">
                 <div className="grid gap-4 md:grid-cols-2">
-                  <Field label="PostgreSQL URL"><input className={inputClass} value={settings.database_url || ''} onChange={e => setSettings(p => ({ ...p, database_url: e.target.value }))} /></Field>
-                  <Field label="Ollama Base URL"><input className={inputClass} value={settings.ollama_base_url || ''} onChange={e => setSettings(p => ({ ...p, ollama_base_url: e.target.value }))} /></Field>
+                  <Field label="PostgreSQL URL"><input className={inputClass} value={settings.database_url || ''} onChange={e => setSettings(p => ({ ...p, database_url: e.target.value }))} placeholder="postgresql://user:password@host:5432/dbname" /></Field>
+                  <Field label="Ollama Base URL"><input className={inputClass} value={settings.ollama_base_url || ''} onChange={e => setSettings(p => ({ ...p, ollama_base_url: e.target.value }))} placeholder="http://localhost:11434" /></Field>
                   <Field label="Default Model">
                     <select className={inputClass} value={settings.default_ollama_model || ''} onChange={e => setSettings(p => ({ ...p, default_ollama_model: e.target.value }))}>
                       <option value="">Select model</option>
                       {models.map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
                   </Field>
-                  <Field label="SearXNG URL"><input className={inputClass} value={settings.searxng_url || ''} onChange={e => setSettings(p => ({ ...p, searxng_url: e.target.value }))} /></Field>
+                  <Field label="SearXNG URL"><input className={inputClass} value={settings.searxng_url || ''} onChange={e => setSettings(p => ({ ...p, searxng_url: e.target.value }))} placeholder="http://localhost:8080" /></Field>
                 </div>
                 <div className="mt-5 flex flex-wrap gap-3">
                   <PrimaryButton onClick={saveSettings} loading={savingSettings}>Save Settings</PrimaryButton>
-                  <SecondaryButton onClick={testDb}>Test Database</SecondaryButton>
-                  <SecondaryButton onClick={loadModels} loading={loadingModels}>Refresh Models</SecondaryButton>
+                  <SecondaryButton onClick={testDb} loading={testingDb}>Test Database</SecondaryButton>
+                  <SecondaryButton onClick={refreshModels} loading={loadingModels} disabled={!canRefreshModels}>Refresh Models</SecondaryButton>
                 </div>
               </Panel>
 
               {/* Models list */}
-              <Panel title="Ollama Models" subtitle="Auto-detected from local Ollama instance.">
+              <Panel title="Ollama Models" subtitle="Fetched from the saved Ollama Base URL.">
                 {loadingModels ? <InlineLoader text="Fetching models..." /> : models.length === 0 ? (
-                  <EmptyState text="No models found. Ensure Ollama is running on localhost:11434." icon="⬡" />
+                  <EmptyState text={canRefreshModels ? 'No models found. Check the saved Ollama Base URL and make sure Ollama is reachable.' : 'Save an Ollama Base URL, then refresh models.'} icon="⬡" />
                 ) : (
                   <div className="space-y-2 max-h-64 overflow-y-auto">
                     {models.map(m => (
@@ -690,18 +813,21 @@ function App() {
               </Panel>
 
               {/* SearXNG control */}
-              <Panel title="SearXNG Engine" subtitle="Control the local SearXNG Docker container for web search.">
+              <Panel title="SearXNG Engine" subtitle="Uses the saved SearXNG URL to control the local Docker container.">
                 <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-5 py-4">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">Container Status</p>
                     <p className="mt-0.5 text-xs text-slate-500">
-                      {searxngStatus.running ? '🟢 Running on port ' + (searxngStatus.port || 8080) : '🔴 Not running'}
+                      {searxngStatusText}
                     </p>
+                    {searxngSettingsDirty && (
+                      <p className="mt-1 text-xs text-amber-600">Save Settings to apply the edited SearXNG URL before starting or stopping the container.</p>
+                    )}
                   </div>
                   {searxngStatus.running ? (
-                    <DangerButton onClick={toggleSearxng}>Stop SearXNG</DangerButton>
+                    <DangerButton onClick={toggleSearxng} loading={togglingSearxng} disabled={!canToggleSearxng}>Stop SearXNG</DangerButton>
                   ) : (
-                    <PrimaryButton onClick={toggleSearxng}>Start SearXNG</PrimaryButton>
+                    <PrimaryButton onClick={toggleSearxng} loading={togglingSearxng} disabled={!canToggleSearxng}>Start SearXNG</PrimaryButton>
                   )}
                 </div>
               </Panel>

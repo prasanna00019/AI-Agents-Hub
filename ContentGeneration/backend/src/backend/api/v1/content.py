@@ -199,13 +199,16 @@ async def generate_day(channel_id: str, payload: GenerateDayRequest):
     try:
         return await content_service.generate_day(channel_id, payload.date, payload.model)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/channels/{channel_id}/generate-week")
 async def generate_week(channel_id: str, payload: GenerateWeekRequest):
     """Async week generation — returns immediately with run_id."""
-    return await content_service.generate_week(channel_id, payload.start_date, payload.model)
+    try:
+        return await content_service.generate_week(channel_id, payload.start_date, payload.model)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/generation/status/{run_id}")
@@ -274,7 +277,10 @@ async def delete_review_item(item_id: str):
 
 @router.post("/review-queue/{item_id}/refine")
 async def refine_review_item(item_id: str, payload: RefineItemRequest):
-    result = await content_service.refine_review_item(item_id, payload.instruction, payload.model)
+    try:
+        result = await content_service.refine_review_item(item_id, payload.instruction, payload.model)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if not result:
         raise HTTPException(status_code=500, detail="Refinement failed")
     return result
@@ -284,14 +290,17 @@ async def refine_review_item(item_id: str, payload: RefineItemRequest):
 
 @router.get("/searxng/status")
 async def searxng_status():
-    return await check_searxng_status()
+    config = content_service.get_searxng_runtime_config()
+    return await check_searxng_status(config["url"])
 
 
 @router.post("/searxng/start")
 async def searxng_start():
-    return await start_searxng()
+    config = content_service.get_searxng_runtime_config()
+    return await start_searxng(config["url"])
 
 
 @router.post("/searxng/stop")
 async def searxng_stop():
-    return await stop_searxng()
+    config = content_service.get_searxng_runtime_config()
+    return await stop_searxng(config["url"])

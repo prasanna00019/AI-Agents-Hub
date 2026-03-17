@@ -10,6 +10,14 @@ const STATUS_BADGES = {
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const WEEKDAY_FULL = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
+// Helper to get local YYYY-MM-DD string
+function getLocalDateString(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 export function ContentCalendar({
   selectedChannel,
   weeklyTemplateDraft,
@@ -66,7 +74,7 @@ export function ContentCalendar({
     return m > 11 ? { year: prev.year + 1, month: 0 } : { year: prev.year, month: m };
   });
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalDateString(new Date());
 
   if (!selectedChannel) return null;
 
@@ -97,7 +105,7 @@ export function ContentCalendar({
       {/* Calendar grid */}
       <div className="grid grid-cols-7 gap-1">
         {calendarDays.map(({ date, isCurrentMonth }, idx) => {
-          const dateStr = date.toISOString().slice(0, 10);
+          const dateStr = getLocalDateString(date);
           const dayIndex = (date.getDay() + 6) % 7; // Monday=0, Sunday=6
           const dayKey = WEEKDAY_FULL[dayIndex];
           const isToday = dateStr === today;

@@ -22,7 +22,6 @@ from typing import Any, Dict, List, Optional, TypedDict
 from langgraph.graph import StateGraph, END
 import httpx
 
-from src.backend.core.config import settings
 from src.backend.utils.formatting import format_for_platform
 
 
@@ -69,14 +68,19 @@ def _log(state: AgentState, step: str, status: str, message: str = "") -> List[D
 
 
 def _ollama_url(state: AgentState) -> str:
-    return (state.get("ollama_base_url") or settings.OLLAMA_BASE_URL).rstrip("/")
+    return (state.get("ollama_base_url") or "").rstrip("/")
 
 
 def _model_name(state: AgentState) -> str:
-    return state.get("model") or settings.DEFAULT_OLLAMA_MODEL
+    return state.get("model") or ""
 
 
 async def _ollama_generate(base_url: str, model: str, prompt: str, timeout: float = 120.0) -> str:
+    if not base_url:
+        raise ValueError("Ollama Base URL is not configured.")
+    if not model:
+        raise ValueError("Ollama model is not configured.")
+
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(
             f"{base_url}/api/generate",
@@ -104,8 +108,9 @@ def route_by_mode(state: AgentState) -> str:
 async def research_node(state: AgentState) -> Dict[str, Any]:
     logs = _log(state, "research", "running", "Searching sources via SearXNG…")
     scraped_data = ""
-    searx_url = state.get("searx_url") or settings.SEARXNG_URL
+    searx_url = (state.get("searx_url") or "").rstrip("/")
     queries = state.get("raw_sources") or [state.get("topic", "")]
+    logs = _log({**state, "agent_logs": logs}, "research", "running", f"Searching URLs for queries: {', '.join(queries[:3])}...")
 
     scraped_chunks: list[str] = []
     if searx_url:
@@ -132,10 +137,18 @@ async def research_node(state: AgentState) -> Dict[str, Any]:
                     )
 
     scraped_data = "\n\n---\n\n".join(scraped_chunks) if scraped_chunks else ""
+    
+    # Extract just the URLs for the log message
+    found_urls = []
+    for chunk in scraped_chunks:
+        lines = chunk.split("\n")
+        if lines and lines[-1].startswith("Source: "):
+            found_urls.append(lines[-1].replace("Source: ", ""))
+
     logs = _log(
         {**state, "agent_logs": logs},
         "research", "done",
-        f"Found {len(scraped_chunks)} results from {len(queries)} queries",
+        f"Found {len(scraped_chunks)} results. Sources: {', '.join(found_urls)}" if found_urls else "No results found."
     )
     return {"scraped_data": scraped_data, "agent_logs": logs}
 
@@ -163,11 +176,46 @@ async def summarize_node(state: AgentState) -> Dict[str, Any]:
             "agent_logs": logs,
         }
 
+    # Apply RAG if text is large
+    if len(raw) > 4000:
+        logs = _log({**state, "agent_logs": logs}, "summarize", "running", f"Text too large ({len(raw)} chars). Applying RAG extraction…")
+        try:
+            import asyncio
+            from langchain_text_splitters import RecursiveCharacterTextSplitter
+            from langchain_community.embeddings import HuggingFaceEmbeddings
+            from langchain_chroma import Chroma
+            from langchain_core.documents import Document
+
+            def _run_rag() -> str:
+                # Split text
+                text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+                docs = [Document(page_content=raw)]
+                splits = text_splitter.split_documents(docs)
+                
+                # Create ephemeral vector store
+                embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+                vectorstore = Chroma.from_documents(documents=splits, embedding=embeddings)
+                
+                # Retrieve relevant chunks
+                retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+                query = state.get("topic") or state.get("pillar") or "Main points"
+                retrieved_docs = retriever.invoke(query)
+                
+                return "\n\n".join(d.page_content for d in retrieved_docs)
+
+            raw_to_summarize = await asyncio.to_thread(_run_rag)
+            logs = _log({**state, "agent_logs": logs}, "summarize", "running", "RAG extraction complete. Summarizing relevant chunks…")
+        except Exception as e:
+            logs = _log({**state, "agent_logs": logs}, "summarize", "warning", f"RAG failed: {e}. Falling back to truncation.")
+            raw_to_summarize = raw
+    else:
+        raw_to_summarize = raw
+
     prompt = (
         "You are a research summarizer. Condense the following raw material into "
         "a structured, concise brief that a content writer can use.\n"
         "Keep key facts, statistics, and quotes. Remove redundancy.\n\n"
-        f"--- RAW MATERIAL ---\n{raw[:6000]}\n\n"
+        f"--- RAW MATERIAL ---\n{raw_to_summarize[:8000]}\n\n"
         "Output a structured summary with bullet points."
     )
 
@@ -211,9 +259,12 @@ async def writer_node(state: AgentState) -> Dict[str, Any]:
     prompt += (
         "\nWrite ONE polished, highly engaging post ready for copy-paste publishing. "
         "Do NOT include any meta-commentary.\n\n"
-        "IMPORTANT: If the research context contains source URLs, you MUST cite them "
-        "at the end of the post in a 'Sources:' section with the actual URLs. "
-        "This gives credibility to the content."
+        "IMPORTANT ANTI-HALLUCINATION RULES:\n"
+        "1. Do NOT invent or make up any sources, facts, or URLs.\n"
+        "2. ONLY use the information explicitly provided in the RESEARCH CONTEXT above.\n"
+        "3. If the context contains real source URLs, you MUST cite them at the end "
+        "of the post in a 'Sources:' section. If NO URLs are provided, DO NOT include "
+        "a sources section at all."
     )
 
     try:

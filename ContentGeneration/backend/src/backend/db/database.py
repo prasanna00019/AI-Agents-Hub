@@ -10,9 +10,18 @@ Base = declarative_base()
 
 @lru_cache(maxsize=8)
 def get_engine(database_url: str | None = None):
+    url = (database_url or settings.DATABASE_URL or "").strip()
+    if not url:
+        raise ValueError("Database URL is not configured.")
+    # Use 5 second timeout for engine connections
+    connect_args = {}
+    if "postgresql" in url.lower():
+        connect_args["connect_timeout"] = 5
+        
     return create_engine(
-        database_url or settings.DATABASE_URL,
+        url,
         pool_pre_ping=True,
+        connect_args=connect_args
     )
 
 
@@ -23,12 +32,8 @@ def get_session_factory(database_url: str | None = None):
         bind=get_engine(database_url),
     )
 
-
-engine = get_engine()
-SessionLocal = get_session_factory()
-
-def get_db():
-    db = SessionLocal()
+def get_db(database_url: str | None = None):
+    db = get_session_factory(database_url)()
     try:
         yield db
     finally:
