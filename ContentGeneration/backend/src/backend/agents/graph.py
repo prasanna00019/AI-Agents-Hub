@@ -38,6 +38,7 @@ class AgentState(TypedDict):
     searxng_time_range: str
     searxng_max_results: int
     memory_context: str
+    source_urls: List[str]
     run_id: Optional[str]
     agent_logs: List[Dict[str, Any]]
 
@@ -111,6 +112,15 @@ async def research_node(state: AgentState) -> Dict[str, Any]:
     )
 
     documents = material.get("documents", [])
+    provided_urls = material.get("provided_urls", []) or []
+    new_search_urls = material.get("new_search_urls", []) or []
+    source_urls: List[str] = []
+    seen: set[str] = set()
+    for url in [*provided_urls, *new_search_urls]:
+        u = (url or "").strip()
+        if u and u not in seen:
+            seen.add(u)
+            source_urls.append(u)
     logs = await _append_log(
         {**state, "agent_logs": logs},
         "research",
@@ -120,6 +130,7 @@ async def research_node(state: AgentState) -> Dict[str, Any]:
     return {
         "research_documents": documents,
         "scraped_data": material.get("combined_text", ""),
+        "source_urls": source_urls,
         "agent_logs": logs,
     }
 
@@ -255,6 +266,13 @@ async def formatter_node(state: AgentState) -> Dict[str, Any]:
         return {"formatted_content": draft, "agent_logs": logs}
 
     formatted = format_for_platform(draft, platform)
+    urls = state.get("source_urls") or []
+    if urls and "sources:" not in formatted.lower():
+        formatted = (
+            formatted.rstrip()
+            + "\n\nSources:\n"
+            + "\n".join(f"- {u}" for u in urls)
+        )
     logs = await _append_log(
         {**state, "agent_logs": logs},
         "formatter",

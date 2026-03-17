@@ -256,11 +256,13 @@ async def collect_research_material(
             )
 
     provided_urls = _dedupe_strings(provided_urls)
+    provided_url_set = set(provided_urls)
     if provided_urls and log_cb:
         await log_cb("running", f"Found {len(provided_urls)} provided source URL(s) to scrape.")
 
     search_results: List[Dict[str, Any]] = []
     search_urls: List[str] = []
+    new_search_urls: List[str] = []
     should_search = (mode != "source_dump") and search_additional and searx_url.strip() and topic.strip()
     if should_search:
         if log_cb:
@@ -283,18 +285,30 @@ async def collect_research_material(
                         )
                     )
                 if result.get("url"):
-                    search_urls.append(result["url"])
+                    url = normalize_url(result["url"])
+                    search_urls.append(url)
+                    if url and url not in provided_url_set:
+                        new_search_urls.append(url)
             if log_cb:
+                filtered_urls = [u for u in new_search_urls if u]
                 await log_cb(
                     "running",
                     f"SearXNG returned {len(search_results)} result(s): "
                     f"{', '.join(r['url'] for r in search_results if r.get('url'))}",
                 )
+                if filtered_urls:
+                    await log_cb(
+                        "running",
+                        f"Filtered to {len(filtered_urls)} new URL(s) (excluding provided sources).",
+                    )
         except Exception as exc:
             if log_cb:
                 await log_cb("warning", f"SearXNG search failed: {exc}")
 
-    candidate_urls = _dedupe_strings([*provided_urls, *search_urls])[:10]
+    # Candidate scrape list:
+    # - always include user-provided URLs
+    # - only include *new* search URLs (exclude anything the user already gave)
+    candidate_urls = _dedupe_strings([*provided_urls, *new_search_urls])[:10]
     if candidate_urls:
         async with httpx.AsyncClient(
             timeout=20.0,
@@ -328,6 +342,8 @@ async def collect_research_material(
         "combined_text": combined_text,
         "search_results": search_results,
         "provided_urls": provided_urls,
+        "search_urls": _dedupe_strings(search_urls),
+        "new_search_urls": _dedupe_strings(new_search_urls),
         "scraped_urls": [
             doc.get("url", "") for doc in documents
             if doc.get("kind") == "scraped_page" and doc.get("url")

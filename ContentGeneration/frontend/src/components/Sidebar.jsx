@@ -33,7 +33,7 @@ export function Sidebar({
 
       <aside
         className={`
-          fixed inset-y-0 left-0 z-50 flex w-72 flex-col bg-gradient-to-b from-slate-950 via-slate-900 to-indigo-950
+          fixed inset-y-0 left-0 z-50 flex w-72 flex-col bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950
           shadow-2xl transition-transform duration-300 lg:static lg:translate-x-0 lg:rounded-2xl
           ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
@@ -41,12 +41,12 @@ export function Sidebar({
         {/* Brand */}
         <div className="px-6 pt-7 pb-2">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-sm font-bold text-white shadow-lg shadow-indigo-600/30">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-bold text-white shadow-lg shadow-brand-600/30">
               CP
             </div>
             <div>
               <h1 className="text-base font-bold tracking-tight text-white">ContentPilot</h1>
-              <p className="text-[11px] font-medium text-indigo-300/70">Agentic Content Platform</p>
+              <p className="text-[11px] font-medium text-brand-200/70">Agentic Content Platform</p>
             </div>
           </div>
         </div>
@@ -54,7 +54,7 @@ export function Sidebar({
         {/* Status */}
         <div className="mx-5 mt-4 rounded-xl border border-white/5 bg-white/5 px-4 py-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400">Backend</span>
+            <span className="text-xs font-medium text-slate-300">Backend</span>
             <span className={`flex items-center gap-1.5 text-[11px] font-semibold ${
               health === 'connected' ? 'text-emerald-400' : health === 'down' ? 'text-rose-400' : 'text-amber-400'
             }`}>
@@ -75,8 +75,8 @@ export function Sidebar({
               onClick={() => { setActiveView(key); setMobileOpen(false); }}
               className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 ${
                 activeView === key
-                  ? 'bg-gradient-to-r from-indigo-600/80 to-violet-600/60 text-white shadow-lg shadow-indigo-700/20'
-                  : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                  ? 'bg-gradient-to-r from-brand-600/80 to-brand-700/60 text-white shadow-lg shadow-brand-700/20'
+                  : 'text-slate-300 hover:bg-white/5 hover:text-white'
               }`}
             >
               <span className="text-base">{icon}</span>
@@ -91,7 +91,7 @@ export function Sidebar({
             <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Channels</h3>
             <button
               onClick={() => { setActiveView('channels'); setMobileOpen(false); }}
-              className="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 transition"
+              className="text-[11px] font-semibold text-brand-300 hover:text-brand-200 transition"
             >
               + New
             </button>
@@ -110,12 +110,12 @@ export function Sidebar({
                 }}
                 className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition ${
                   selectedChannelId === ch.id
-                    ? 'bg-indigo-600/20 text-indigo-200'
-                    : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
+                    ? 'bg-brand-600/20 text-brand-200'
+                    : 'text-slate-300 hover:bg-white/5 hover:text-slate-200'
                 }`}
               >
                 <span className="truncate text-sm font-medium">{ch.name}</span>
-                <span className="ml-2 shrink-0 rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <span className="ml-2 shrink-0 rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-300">
                   {ch.platform}
                 </span>
               </button>

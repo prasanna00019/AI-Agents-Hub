@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
 
 const STATUS_BADGES = {
-  ready:      { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', dot: 'bg-emerald-500', label: 'Ready' },
-  draft:      { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', dot: 'bg-amber-500', label: 'Draft' },
-  collecting: { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', dot: 'bg-blue-500', label: 'Collecting' },
-  empty:      { bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-400', dot: 'bg-slate-300', label: 'Empty' },
+  ready:      { bg: 'bg-emerald-100', border: 'border-emerald-300', text: 'text-emerald-900', dot: 'bg-emerald-600', label: 'Ready' },
+  draft:      { bg: 'bg-amber-100', border: 'border-amber-300', text: 'text-amber-900', dot: 'bg-amber-600', label: 'Draft' },
+  collecting: { bg: 'bg-blue-100', border: 'border-blue-300', text: 'text-blue-900', dot: 'bg-blue-600', label: 'Collecting' },
+  empty:      { bg: 'bg-slate-100', border: 'border-slate-300', text: 'text-slate-700', dot: 'bg-slate-500', label: 'Empty' },
 };
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -85,19 +85,19 @@ export function ContentCalendar({
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-lg font-bold text-slate-900">Content Calendar</h3>
-          <p className="mt-0.5 text-xs text-slate-500">Click any day to plan or override content</p>
+          <p className="mt-0.5 text-xs text-slate-600">Click any day to plan or override content</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={prevMonth} className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition text-sm">‹</button>
+          <button onClick={prevMonth} className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition text-sm">‹</button>
           <span className="min-w-[140px] text-center text-sm font-semibold text-slate-800">{monthLabel}</span>
-          <button onClick={nextMonth} className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition text-sm">›</button>
+          <button onClick={nextMonth} className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition text-sm">›</button>
         </div>
       </div>
 
       {/* Weekday headers */}
       <div className="grid grid-cols-7 gap-1 mb-1">
         {WEEKDAYS.map((d) => (
-          <div key={d} className="py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+          <div key={d} className="py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-slate-500">
             {d}
           </div>
         ))}
@@ -137,7 +137,7 @@ export function ContentCalendar({
               className={`group relative flex min-h-[80px] flex-col rounded-xl border p-2 text-left transition-all duration-200 hover:shadow-md hover:scale-[1.02] ${
                 isCurrentMonth
                   ? `${badge.bg} ${badge.border} ${badge.text}`
-                  : 'bg-slate-25 border-slate-100 text-slate-300'
+                  : 'bg-slate-50 border-slate-200 text-slate-500'
               } ${isToday ? 'ring-2 ring-indigo-400 ring-offset-1' : ''}`}
             >
               {/* Day number */}
@@ -162,7 +162,7 @@ export function ContentCalendar({
 
               {/* Source dump count badge */}
               {isCurrentMonth && dumpCount > 0 && (
-                <span className="absolute left-1.5 bottom-1.5 inline-flex items-center gap-0.5 rounded-md bg-indigo-100 px-1.5 py-0.5 text-[9px] font-bold text-indigo-600" title={`${dumpCount} source(s) dumped`}>
+                <span className="absolute left-1.5 bottom-1.5 inline-flex items-center gap-0.5 rounded-md bg-indigo-200 px-1.5 py-0.5 text-[9px] font-bold text-indigo-800" title={`${dumpCount} source(s) dumped`}>
                   📎 {dumpCount}
                 </span>
               )}
