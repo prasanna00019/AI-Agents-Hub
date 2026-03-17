@@ -195,9 +195,9 @@ async def delete_source_dump(channel_id: str, dump_id: str):
 
 @router.post("/channels/{channel_id}/generate-day")
 async def generate_day(channel_id: str, payload: GenerateDayRequest):
-    """Synchronous single-day generation (returns when complete)."""
+    """Async single-day generation that returns a run id for SSE streaming."""
     try:
-        return await content_service.generate_day(channel_id, payload.date, payload.model)
+        return await content_service.start_day_generation(channel_id, payload.date, payload.model)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

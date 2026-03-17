@@ -21,19 +21,7 @@ from src.backend.models.content_models import (
     ReviewItemRecord,
     SourceDumpItemRecord,
 )
-
-
-_run_queues: Dict[str, asyncio.Queue] = {}
-
-
-def get_run_queue(run_id: str) -> asyncio.Queue:
-    if run_id not in _run_queues:
-        _run_queues[run_id] = asyncio.Queue()
-    return _run_queues[run_id]
-
-
-def cleanup_run_queue(run_id: str) -> None:
-    _run_queues.pop(run_id, None)
+from src.backend.services.run_events import cleanup_run_queue, emit_run_event, get_run_queue
 
 
 def _default_weekly_template() -> Dict[str, str]:
@@ -172,7 +160,6 @@ class ContentService:
     def _normalize_settings_update(key: str, value: Any) -> Any:
         if not isinstance(value, str):
             return value
-
         normalized = value.strip()
         if key in {"ollama_base_url", "searxng_url"}:
             normalized = normalized.rstrip("/")
@@ -414,6 +401,34 @@ class ContentService:
             db.delete(record)
             return True
 
+    def _create_generation_run(self, channel_id: str, dates: List[str]) -> Dict[str, Any]:
+        run_id = str(uuid4())
+        with self._session() as db:
+            run_record = GenerationRunRecord(
+                id=run_id,
+                channel_id=channel_id,
+                status="queued",
+                started_at=None,
+                completed_at=None,
+                logs=[],
+                dates=dates,
+                error="",
+            )
+            db.add(run_record)
+        return {"run_id": run_id, "status": "queued", "dates": dates}
+
+    async def start_day_generation(
+        self,
+        channel_id: str,
+        date_key: str,
+        model: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        self.validate_ollama_runtime_config(model)
+        self.initialize_storage()
+        run_data = self._create_generation_run(channel_id, [date_key])
+        asyncio.create_task(self._run_day_generation(run_data["run_id"], channel_id, date_key, model))
+        return run_data
+
     async def generate_day(
         self,
         channel_id: str,
@@ -436,7 +451,7 @@ class ContentService:
                     SourceDumpItemRecord.date == date_key,
                 )
             ).scalars().all()
-            raw_sources = [record.raw_content for record in source_rows]
+            date_sources = [record.raw_content for record in source_rows if record.raw_content]
 
         day_dt = date.fromisoformat(date_key)
         day_key = day_dt.strftime("%A").lower()
@@ -445,6 +460,19 @@ class ContentService:
         topic = override.get("topic") or f"{pillar} for {channel_payload['name']}"
         special_instructions = override.get("special_instructions", "")
         mode = override.get("mode", "pre_generated")
+        raw_sources = date_sources if mode == "source_dump" else [*(channel_payload.get("sources") or []), *date_sources]
+
+        if run_id:
+            await emit_run_event(
+                run_id,
+                {
+                    "step": "pipeline",
+                    "status": "running",
+                    "message": f"Generating {date_key}: {topic}",
+                    "date": date_key,
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+            )
 
         state_input = {
             "channel": channel_payload,
@@ -453,7 +481,8 @@ class ContentService:
             "topic": topic,
             "special_instructions": special_instructions,
             "mode": mode,
-            "raw_sources": raw_sources if mode == "source_dump" else channel_payload.get("sources", []),
+            "raw_sources": raw_sources,
+            "research_documents": [],
             "scraped_data": "",
             "summarized_context": "",
             "draft": "",
@@ -463,28 +492,11 @@ class ContentService:
             "model": ollama_config["model_name"],
             "ollama_base_url": ollama_config["base_url"],
             "searx_url": (self._settings.get("searxng_url") or "").rstrip("/"),
+            "run_id": run_id,
             "agent_logs": [],
         }
 
-        if run_id:
-            queue = get_run_queue(run_id)
-            await queue.put(
-                {
-                    "step": "pipeline",
-                    "status": "running",
-                    "message": f"Generating {date_key}: {topic}",
-                    "date": date_key,
-                }
-            )
-
         result_state = await content_graph.ainvoke(state_input)
-
-        if run_id:
-            queue = get_run_queue(run_id)
-            for log_entry in result_state.get("agent_logs") or []:
-                log_entry["date"] = date_key
-                await queue.put(log_entry)
-
         formatted = result_state.get("formatted_content", "") or result_state.get("draft", "")
 
         with self._session() as db:
@@ -520,37 +532,13 @@ class ContentService:
             db.flush()
             return self._serialize_review_item(record)
 
-    async def generate_week(
-        self, channel_id: str, start_date_str: str, model: Optional[str] = None
-    ) -> Dict[str, Any]:
-        self.validate_ollama_runtime_config(model)
-        run_id = str(uuid4())
-
-        self.initialize_storage()
-        start_dt = date.fromisoformat(start_date_str)
-        dates = [(start_dt + timedelta(days=index)).isoformat() for index in range(7)]
-
-        with self._session() as db:
-            run_record = GenerationRunRecord(
-                id=run_id,
-                channel_id=channel_id,
-                status="queued",
-                started_at=None,
-                completed_at=None,
-                logs=[],
-                dates=dates,
-                error="",
-            )
-            db.add(run_record)
-
-        asyncio.create_task(self._run_week_generation(run_id, channel_id, dates, model))
-        return {"run_id": run_id, "status": "queued", "dates": dates}
-
-    async def _run_week_generation(
-        self, run_id: str, channel_id: str, dates: List[str], model: Optional[str]
+    async def _run_day_generation(
+        self,
+        run_id: str,
+        channel_id: str,
+        date_key: str,
+        model: Optional[str],
     ) -> None:
-        queue = get_run_queue(run_id)
-
         with self._session() as db:
             run = db.get(GenerationRunRecord, run_id)
             if run:
@@ -558,12 +546,72 @@ class ContentService:
                 run.started_at = datetime.utcnow()
                 db.add(run)
 
-        await queue.put(
+        error_message = ""
+        try:
+            await self.generate_day(channel_id, date_key, model, run_id)
+            await emit_run_event(
+                run_id,
+                {
+                    "step": "pipeline",
+                    "status": "done",
+                    "message": f"Completed generation for {date_key}",
+                    "date": date_key,
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+            )
+            final_status = "completed"
+        except Exception as exc:
+            error_message = str(exc)
+            final_status = "failed"
+            await emit_run_event(
+                run_id,
+                {
+                    "step": "error",
+                    "status": "error",
+                    "message": str(exc),
+                    "date": date_key,
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+            )
+        finally:
+            with self._session() as db:
+                run = db.get(GenerationRunRecord, run_id)
+                if run:
+                    run.status = final_status
+                    run.completed_at = datetime.utcnow()
+                    run.error = error_message
+                    db.add(run)
+            await get_run_queue(run_id).put(None)
+
+    async def generate_week(
+        self, channel_id: str, start_date_str: str, model: Optional[str] = None
+    ) -> Dict[str, Any]:
+        self.validate_ollama_runtime_config(model)
+        self.initialize_storage()
+        start_dt = date.fromisoformat(start_date_str)
+        dates = [(start_dt + timedelta(days=index)).isoformat() for index in range(7)]
+        run_data = self._create_generation_run(channel_id, dates)
+        asyncio.create_task(self._run_week_generation(run_data["run_id"], channel_id, dates, model))
+        return run_data
+
+    async def _run_week_generation(
+        self, run_id: str, channel_id: str, dates: List[str], model: Optional[str]
+    ) -> None:
+        with self._session() as db:
+            run = db.get(GenerationRunRecord, run_id)
+            if run:
+                run.status = "running"
+                run.started_at = datetime.utcnow()
+                db.add(run)
+
+        await emit_run_event(
+            run_id,
             {
                 "step": "pipeline",
                 "status": "running",
-                "message": f"Starting generation for {len(dates)} days",
-            }
+                "message": f"Starting generation for {len(dates)} day(s)",
+                "timestamp": datetime.utcnow().isoformat(),
+            },
         )
 
         error_message = ""
@@ -571,25 +619,19 @@ class ContentService:
 
         for date_key in dates:
             try:
-                await queue.put(
-                    {
-                        "step": "pipeline",
-                        "status": "running",
-                        "message": f"Processing {date_key}...",
-                        "date": date_key,
-                    }
-                )
                 await self.generate_day(channel_id, date_key, model, run_id)
                 generated += 1
             except Exception as exc:
                 error_message += f"{date_key}: {exc}\n"
-                await queue.put(
+                await emit_run_event(
+                    run_id,
                     {
                         "step": "error",
                         "status": "error",
                         "message": str(exc),
                         "date": date_key,
-                    }
+                        "timestamp": datetime.utcnow().isoformat(),
+                    },
                 )
 
         final_status = "completed" if not error_message else "failed"
@@ -601,14 +643,16 @@ class ContentService:
                 run.error = error_message
                 db.add(run)
 
-        await queue.put(
+        await emit_run_event(
+            run_id,
             {
                 "step": "pipeline",
                 "status": "done",
-                "message": f"Completed: {generated}/{len(dates)} days generated",
-            }
+                "message": f"Completed: {generated}/{len(dates)} day(s) generated",
+                "timestamp": datetime.utcnow().isoformat(),
+            },
         )
-        await queue.put(None)
+        await get_run_queue(run_id).put(None)
 
     def get_generation_run(self, run_id: str) -> Optional[Dict[str, Any]]:
         self.initialize_storage()

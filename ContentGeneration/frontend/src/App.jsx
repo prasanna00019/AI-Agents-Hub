@@ -71,7 +71,7 @@ function App() {
   const [weeklyTemplateDraft, setWeeklyTemplateDraft] = useState({ ...DEFAULT_TEMPLATE })
   const [overrideForm, setOverrideForm] = useState({ date: '', pillar: '', topic: '', special_instructions: '', mode: 'pre_generated' })
   const [sourceDumps, setSourceDumps] = useState([])
-  const [newSourceDump, setNewSourceDump] = useState({ type: 'text', label: '', raw_content: '' })
+  const [newSourceDump, setNewSourceDump] = useState({ type: 'url', label: '', raw_content: '' })
   const [isMobileOpen, setMobileOpen] = useState(false)
   const [searxngStatus, setSearxngStatus] = useState({ running: false, configured: false, controllable: false, url: '', port: null })
 
@@ -309,7 +309,7 @@ function App() {
     if (!selectedChannelId || !overrideForm.date) return
     try {
       await callApi(`/api/v1/channels/${selectedChannelId}/source-dumps?date=${overrideForm.date}`, { method: 'POST', body: JSON.stringify(newSourceDump) })
-      setNewSourceDump({ type: 'text', label: '', raw_content: '' })
+      setNewSourceDump({ type: 'url', label: '', raw_content: '' })
       loadSourceDumps(selectedChannelId, overrideForm.date)
       feedback('Source added', 'success')
     } catch (e) { feedback(e.message, 'error') }
@@ -324,17 +324,64 @@ function App() {
     } catch (e) { feedback(e.message, 'error') }
   }
 
+  const connectGenerationStream = useCallback((runId, { onComplete, onDisconnect }) => {
+    const es = new EventSource(`${api}/api/v1/generation/stream/${runId}`)
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        setAgentLogs(prev => [...prev, data])
+        if (data.status === 'done' && data.step === 'pipeline') {
+          es.close()
+          onComplete?.(data)
+        }
+      } catch { }
+    }
+    es.onerror = () => {
+      es.close()
+      onDisconnect?.()
+    }
+    return es
+  }, [api])
+
   const generateDay = async () => {
     if (!selectedChannelId || !overrideForm.date) return
+    if (overrideForm.mode === 'source_dump' && sourceDumps.length === 0) {
+      return feedback('Add at least one dumped source before generating this roundup', 'error')
+    }
     setGeneratingDay(true); setAgentLogs([])
     try {
-      await callApi(`/api/v1/channels/${selectedChannelId}/generate-day`, { method: 'POST', body: JSON.stringify({ date: overrideForm.date }) })
-      await loadReviewQueue(selectedChannelId)
-      setOverrideForm(p => ({ ...p, date: '' }))
-      setActiveView('review')
-      feedback('Content generated for ' + overrideForm.date, 'success')
-    } catch (e) { feedback(e.message, 'error') }
-    finally { setGeneratingDay(false) }
+      const targetDate = overrideForm.date
+      await callApi(`/api/v1/channels/${selectedChannelId}/overrides`, {
+        method: 'POST',
+        body: JSON.stringify(overrideForm),
+      })
+      const result = await callApi(`/api/v1/channels/${selectedChannelId}/generate-day`, {
+        method: 'POST',
+        body: JSON.stringify({ date: targetDate, model: generateModel || settings.default_ollama_model }),
+      })
+
+      if (result.run_id) {
+        connectGenerationStream(result.run_id, {
+          onComplete: async () => {
+            setGeneratingDay(false)
+            await loadChannels()
+            await loadReviewQueue(selectedChannelId)
+            setOverrideForm(p => ({ ...p, date: '' }))
+            setActiveView('review')
+            feedback(`Content generated for ${targetDate}`, 'success')
+          },
+          onDisconnect: () => {
+            setGeneratingDay(false)
+            feedback('Generation stream disconnected', 'error')
+          },
+        })
+      } else {
+        setGeneratingDay(false)
+      }
+    } catch (e) {
+      setGeneratingDay(false)
+      feedback(e.message, 'error')
+    }
   }
 
   const generateWeek = async () => {
@@ -343,23 +390,20 @@ function App() {
     try {
       const result = await callApi(`/api/v1/channels/${selectedChannelId}/generate-week`, { method: 'POST', body: JSON.stringify({ start_date: generateStartDate, model: generateModel || settings.default_ollama_model }) })
 
-      // Connect SSE stream
       if (result.run_id) {
-        const es = new EventSource(`${api}/api/v1/generation/stream/${result.run_id}`)
-        es.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data)
-            setAgentLogs(prev => [...prev, data])
-            if (data.status === 'done' && data.step === 'pipeline') {
-              es.close()
-              setGenerating(false)
-              loadReviewQueue(selectedChannelId)
-              setActiveView('review')
-              feedback('Week generation complete', 'success')
-            }
-          } catch { }
-        }
-        es.onerror = () => { es.close(); setGenerating(false); feedback('Generation stream disconnected', 'error') }
+        connectGenerationStream(result.run_id, {
+          onComplete: async () => {
+            setGenerating(false)
+            await loadChannels()
+            await loadReviewQueue(selectedChannelId)
+            setActiveView('review')
+            feedback('Week generation complete', 'success')
+          },
+          onDisconnect: () => {
+            setGenerating(false)
+            feedback('Generation stream disconnected', 'error')
+          },
+        })
       }
     } catch (e) { feedback(e.message, 'error'); setGenerating(false) }
   }
@@ -467,6 +511,22 @@ function App() {
       : searxngStatus.running
         ? `Running at ${searxngStatus.url}`
         : `Stopped. Ready to start at ${searxngStatus.url}`
+  const filteredReviewQueue = reviewQueue.filter((item) => {
+    const matchesDate = !reviewFilterDate || item.date === reviewFilterDate
+    const matchesStatus = reviewFilterStatus === 'all' || item.status === reviewFilterStatus
+    return matchesDate && matchesStatus
+  })
+  const renderFormattedPreview = (content) => {
+    const blocks = content.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean)
+    if (blocks.length === 0) {
+      return <p className="text-sm text-slate-400">No content yet.</p>
+    }
+    return blocks.map((block, index) => (
+      block === '---'
+        ? <hr key={`${block}-${index}`} className="border-slate-200" />
+        : <p key={`${block.slice(0, 20)}-${index}`} className="whitespace-pre-wrap text-sm leading-7 text-slate-700">{block}</p>
+    ))
+  }
 
   return (
     <div className="h-screen overflow-hidden bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 font-sans text-slate-800 antialiased">
@@ -702,70 +762,99 @@ function App() {
           ═══════════════════════════════════════════════════════ */}
           {activeView === 'review' && (
             <div className="space-y-5 animate-fade-in pb-6">
+              {(generating || generatingDay || agentLogs.length > 0) && (
+                <AgentProgress logs={agentLogs} isRunning={generating || generatingDay} />
+              )}
               <Panel title="Review Queue" subtitle="Edit, refine with AI, and copy-paste ready content.">
+                <div className="mb-5 flex flex-wrap items-end gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+                  <Field label="Filter by Date">
+                    <input className={inputClass} type="date" value={reviewFilterDate} onChange={e => setReviewFilterDate(e.target.value)} />
+                  </Field>
+                  <Field label="Filter by Status">
+                    <select className={inputClass} value={reviewFilterStatus} onChange={e => setReviewFilterStatus(e.target.value)}>
+                      <option value="all">All statuses</option>
+                      <option value="draft">Draft</option>
+                      <option value="ready">Ready</option>
+                    </select>
+                  </Field>
+                  <SecondaryButton onClick={() => { setReviewFilterDate(''); setReviewFilterStatus('all') }}>Clear Filters</SecondaryButton>
+                </div>
+
                 {loadingReview ? <InlineLoader text="Loading review queue..." /> :
-                  reviewQueue.length === 0 ? <EmptyState text="No drafts yet. Generate content to populate the queue." icon="◎" /> : (
-                    <div className="space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto pr-1">
-                      {reviewQueue.map(item => (
-                        <article key={item.id} className="rounded-xl border border-slate-100 bg-slate-50/50 p-5 transition hover:shadow-sm">
-                          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                            <div>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="rounded-lg bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 border border-slate-100">{item.date}</span>
-                                <span className="rounded-lg bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 border border-slate-100">{item.pillar}</span>
-                                <span className={`rounded-lg px-2.5 py-1 text-[11px] font-bold ${item.status === 'ready' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{item.status}</span>
+                  reviewQueue.length === 0 ? <EmptyState text="No drafts yet. Generate content to populate the queue." icon="◎" /> :
+                    filteredReviewQueue.length === 0 ? <EmptyState text="No drafts match the current filters." icon="◌" /> : (
+                      <div className="space-y-4 max-h-[calc(100vh-240px)] overflow-y-auto pr-1">
+                        {filteredReviewQueue.map(item => (
+                          <article key={item.id} className="rounded-xl border border-slate-100 bg-slate-50/50 p-5 transition hover:shadow-sm">
+                            <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="rounded-lg bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 border border-slate-100">{item.date}</span>
+                                  <span className="rounded-lg bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 border border-slate-100">{item.pillar}</span>
+                                  <span className={`rounded-lg px-2.5 py-1 text-[11px] font-bold ${item.status === 'ready' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{item.status}</span>
+                                </div>
+                                <h3 className="mt-2 text-base font-bold text-slate-900">{item.topic}</h3>
                               </div>
-                              <h3 className="mt-2 text-base font-bold text-slate-900">{item.topic}</h3>
+                              <div className="flex flex-wrap gap-2">
+                                <select
+                                  className={`${inputClass} !w-auto`}
+                                  value={item.status}
+                                  onChange={e => setReviewQueue(p => p.map(r => r.id === item.id ? { ...r, status: e.target.value } : r))}
+                                >
+                                  <option value="draft">Draft</option>
+                                  <option value="ready">Ready</option>
+                                </select>
+                                <SecondaryButton onClick={() => saveReviewItem(item)}>Save</SecondaryButton>
+                                <PrimaryButton onClick={() => copyContent(item.content)}>Copy</PrimaryButton>
+                                <DangerButton onClick={() => deleteReviewItem(item.id)} className="!py-1.5 !px-3 !text-xs">Delete</DangerButton>
+                              </div>
                             </div>
-                            <div className="flex flex-wrap gap-2">
-                              <select
-                                className={`${inputClass} !w-auto`}
-                                value={item.status}
-                                onChange={e => setReviewQueue(p => p.map(r => r.id === item.id ? { ...r, status: e.target.value } : r))}
-                              >
-                                <option value="draft">Draft</option>
-                                <option value="ready">Ready</option>
-                              </select>
-                              <SecondaryButton onClick={() => saveReviewItem(item)}>Save</SecondaryButton>
-                              <PrimaryButton onClick={() => copyContent(item.content)}>Copy</PrimaryButton>
-                              <DangerButton onClick={() => deleteReviewItem(item.id)} className="!py-1.5 !px-3 !text-xs">Delete</DangerButton>
-                            </div>
-                          </div>
 
-                          <textarea
-                            className={`${textareaClass} mt-4 min-h-[200px] max-h-[400px] bg-white resize-y`}
-                            value={item.content}
-                            onChange={e => setReviewQueue(p => p.map(r => r.id === item.id ? { ...r, content: e.target.value } : r))}
-                          />
+                            <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                              <div className="rounded-xl border border-slate-100 bg-white p-4">
+                                <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">Formatted Preview</p>
+                                <div className="max-h-[420px] space-y-3 overflow-y-auto">{renderFormattedPreview(item.content)}</div>
+                              </div>
 
-                          {/* Refinement chat */}
-                          <div className="mt-4 rounded-xl border border-slate-100 bg-white p-4">
-                            <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Refinement Chat</p>
-                            <div className="flex flex-col gap-3 lg:flex-row">
-                              <input
-                                className={`${inputClass} flex-1`}
-                                placeholder="e.g. tighten the hook, reduce to 180 words"
-                                value={refineInputs[item.id] || ''}
-                                onChange={e => setRefineInputs(p => ({ ...p, [item.id]: e.target.value }))}
-                                onKeyDown={e => { if (e.key === 'Enter') refineItem(item.id) }}
-                              />
-                              <PrimaryButton onClick={() => refineItem(item.id)} loading={refiningId === item.id}>Refine with AI</PrimaryButton>
-                            </div>
-                            {item.chat_history?.length > 0 && (
-                              <div className="mt-3 space-y-1.5 max-h-32 overflow-y-auto rounded-lg bg-slate-50 p-3">
-                                {item.chat_history.map((entry, i) => (
-                                  <div key={i} className="flex items-start gap-2 text-xs">
-                                    <span className="shrink-0 text-indigo-500 font-bold">→</span>
-                                    <span className="text-slate-600">{entry.instruction}</span>
+                              <div className="space-y-4 rounded-xl border border-slate-100 bg-white p-4">
+                                <div>
+                                  <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">Editable Content</p>
+                                  <textarea
+                                    className={`${textareaClass} min-h-[220px] max-h-[420px] bg-white resize-y`}
+                                    value={item.content}
+                                    onChange={e => setReviewQueue(p => p.map(r => r.id === item.id ? { ...r, content: e.target.value } : r))}
+                                  />
+                                </div>
+
+                                <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-4">
+                                  <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">Refinement Chat</p>
+                                  <div className="flex flex-col gap-3 lg:flex-row">
+                                    <input
+                                      className={`${inputClass} flex-1`}
+                                      placeholder="e.g. tighten the hook, reduce to 180 words"
+                                      value={refineInputs[item.id] || ''}
+                                      onChange={e => setRefineInputs(p => ({ ...p, [item.id]: e.target.value }))}
+                                      onKeyDown={e => { if (e.key === 'Enter') refineItem(item.id) }}
+                                    />
+                                    <PrimaryButton onClick={() => refineItem(item.id)} loading={refiningId === item.id}>Refine with AI</PrimaryButton>
                                   </div>
-                                ))}
+                                  {item.chat_history?.length > 0 && (
+                                    <div className="mt-3 space-y-1.5 max-h-32 overflow-y-auto rounded-lg bg-white p-3">
+                                      {item.chat_history.map((entry, i) => (
+                                        <div key={i} className="flex items-start gap-2 text-xs">
+                                          <span className="shrink-0 text-indigo-500 font-bold">→</span>
+                                          <span className="text-slate-600">{entry.instruction}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                            )}
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  )}
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    )}
               </Panel>
             </div>
           )}
@@ -845,35 +934,59 @@ function App() {
       >
         <div className="space-y-5">
           <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
-            <p className="text-xs text-slate-500"><strong>Override Template Pillar</strong> lets you replace the default weekly template pillar with a custom one for this specific date. Leave blank to use the weekly template default.</p>
+            <p className="text-xs text-slate-500"><strong>Content Pillar</strong> lets you replace the weekly template pillar for this specific date. Leave it blank to keep the default for that day.</p>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setOverrideForm(p => ({ ...p, mode: 'pre_generated' }))}
+              className={`rounded-2xl border p-4 text-left transition ${overrideForm.mode === 'pre_generated' ? 'border-indigo-400 bg-indigo-50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+            >
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-500">Daily Research Generation</p>
+              <h4 className="mt-2 text-base font-bold text-slate-900">Topic + your sources + SearXNG</h4>
+              <p className="mt-2 text-sm text-slate-600">Use this for a normal day. You can add links or text below, and the pipeline will scrape those sources, search for more sources with SearXNG, then run RAG before writing the final post.</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setOverrideForm(p => ({ ...p, mode: 'source_dump' }))}
+              className={`rounded-2xl border p-4 text-left transition ${overrideForm.mode === 'source_dump' ? 'border-amber-400 bg-amber-50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+            >
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-500">Source Dump / Roundup</p>
+              <h4 className="mt-2 text-base font-bold text-slate-900">Curated weekly or special-source summary</h4>
+              <p className="mt-2 text-sm text-slate-600">Use this when you want to keep dumping links, notes, or text into one date bucket, like a Sunday AI news recap. Generation will use the dumped sources and run RAG across the full collection.</p>
+            </button>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Content Pillar" help="Leave blank to use weekly template default"><input className={inputClass} value={overrideForm.pillar} onChange={e => setOverrideForm(p => ({ ...p, pillar: e.target.value }))} placeholder="Override template pillar" /></Field>
-            <Field label="Topic"><input className={inputClass} value={overrideForm.topic} onChange={e => setOverrideForm(p => ({ ...p, topic: e.target.value }))} placeholder="Specific subject for this day" /></Field>
+            <Field label="Topic"><input className={inputClass} value={overrideForm.topic} onChange={e => setOverrideForm(p => ({ ...p, topic: e.target.value }))} placeholder={overrideForm.mode === 'source_dump' ? 'e.g. Weekly AI news summary' : 'Specific subject for this day'} /></Field>
             <Field label="Special Instructions"><input className={inputClass} value={overrideForm.special_instructions} onChange={e => setOverrideForm(p => ({ ...p, special_instructions: e.target.value }))} placeholder="e.g. Keep under 300 words" /></Field>
-            <Field label="Generation Mode">
-              <select className={inputClass} value={overrideForm.mode} onChange={e => setOverrideForm(p => ({ ...p, mode: e.target.value }))}>
-                <option value="pre_generated">Pre-Generated (AI researches + writes)</option>
-                <option value="source_dump">Source Dump (You provide sources)</option>
-              </select>
-            </Field>
+            <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-500">How This Run Works</p>
+              <p className="mt-2 text-sm text-slate-600">
+                {overrideForm.mode === 'source_dump'
+                  ? 'This date acts like a source bucket. Keep adding links, notes, or raw text here. When you generate, the app will fetch the dumped sources and run RAG over the combined material.'
+                  : 'This run starts with your topic, adds any links or text you provide below, searches SearXNG for extra coverage, scrapes the discovered URLs, and then runs RAG before content generation.'}
+              </p>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <SecondaryButton onClick={async () => { await saveOverride(); setOverrideForm(p => ({ ...p, date: '' })) }}>Save Override</SecondaryButton>
-            <PrimaryButton onClick={generateDay} loading={generatingDay}>Generate This Day</PrimaryButton>
+            <SecondaryButton onClick={async () => { await saveOverride(); setOverrideForm(p => ({ ...p, date: '' })) }}>Save Plan</SecondaryButton>
+            <PrimaryButton onClick={generateDay} loading={generatingDay}>{overrideForm.mode === 'source_dump' ? 'Generate From Dump' : 'Generate This Day'}</PrimaryButton>
           </div>
 
-          {overrideForm.mode === 'source_dump' && (
-            <SourceInbox
-              sourceDumps={sourceDumps}
-              newSourceDump={newSourceDump}
-              setNewSourceDump={setNewSourceDump}
-              addSourceDump={addSourceDump}
-              deleteSourceDump={deleteSourceDump}
-              inputClass={inputClass}
-            />
-          )}
+          <SourceInbox
+            title={overrideForm.mode === 'source_dump' ? 'Roundup Source Dump' : 'Optional Seed Sources'}
+            description={overrideForm.mode === 'source_dump'
+              ? 'Add links, notes, or pasted text to build up this roundup over time. When you generate, the dumped sources will be fetched and sent through the RAG pipeline.'
+              : 'Add any links or source text you already have. The pipeline will combine these with SearXNG discovery, scrape the sources, and use RAG to build the final context.'}
+            sourceDumps={sourceDumps}
+            newSourceDump={newSourceDump}
+            setNewSourceDump={setNewSourceDump}
+            addSourceDump={addSourceDump}
+            deleteSourceDump={deleteSourceDump}
+            inputClass={inputClass}
+          />
         </div>
       </Modal>
 

@@ -18,14 +18,14 @@ export function LoadingOverlay({ active, message = "Generating content...", logs
           {logs.length > 0 && (
             <div className="mt-5 w-full max-h-40 overflow-y-auto space-y-1.5 rounded-xl bg-slate-50 p-3">
               {logs.slice(-8).map((log, i) => (
-                <div key={i} className="flex items-center gap-2 text-[11px]">
+                <div key={i} className="flex items-start gap-2 text-[11px]">
                   <span className={`inline-block h-1.5 w-1.5 rounded-full shrink-0 ${
                     log.status === 'done' ? 'bg-emerald-500' :
                     log.status === 'running' ? 'bg-indigo-500 animate-pulse-dot' :
                     log.status === 'error' ? 'bg-rose-500' : 'bg-slate-300'
                   }`} />
                   <span className="font-semibold text-slate-600 capitalize">{log.step}</span>
-                  <span className="text-slate-400 truncate">{log.message}</span>
+                  <span className="break-words text-slate-400">{log.message}</span>
                 </div>
               ))}
             </div>

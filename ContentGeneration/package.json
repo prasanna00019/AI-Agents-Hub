@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "@tailwindcss/vite": "^4.2.1",
+    "agent-browser": "^0.20.14",
     "tailwindcss": "^4.2.1"
   }
 }

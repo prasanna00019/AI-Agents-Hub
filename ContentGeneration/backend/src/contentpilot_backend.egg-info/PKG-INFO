@@ -14,6 +14,11 @@ Requires-Dist: sqlalchemy>=2.0.0
 Requires-Dist: asyncpg>=0.29.0
 Requires-Dist: psycopg2-binary>=2.9.0
 Requires-Dist: langgraph>=0.0.38
+Requires-Dist: langchain-core>=0.3.0
+Requires-Dist: langchain-community>=0.3.0
+Requires-Dist: langchain-text-splitters>=0.3.0
+Requires-Dist: langchain-chroma>=0.1.0
+Requires-Dist: sentence-transformers>=2.7.0
 Requires-Dist: ollama>=0.1.7
 Requires-Dist: playwright>=1.40.0
 Requires-Dist: httpx>=0.25.0
@@ -50,7 +55,7 @@ pip install -r requirements.txt
 Set your local database URL (PowerShell):
 
 ```bash
-$env:DATABASE_URL="postgresql://postgres:radha@localhost:6739/CONTENT"
+$env:DATABASE_URL="postgresql://postgres:password@localhost:5432/contentpilot"
 ```
 
 Run the development server:
