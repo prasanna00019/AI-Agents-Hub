@@ -135,6 +135,72 @@ async def research_node(state: AgentState) -> Dict[str, Any]:
     }
 
 
+async def _summarize_source_dump_mode(state: AgentState, documents: List[Dict[str, Any]], logs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Map-reduce summarization for source dump generation mode."""
+    topic = state.get("topic", "")
+    pillar = state.get("pillar", "")
+    special = state.get("special_instructions", "")
+    base_url = _ollama_url(state)
+    model = _model_name(state)
+
+    filtered_docs = [d for d in documents if d.get("content")]
+    if not filtered_docs:
+        logs = await _append_log({**state, "agent_logs": logs}, "summarize", "warning", "No readable content found in dumped sources.")
+        return {"summarized_context": f"Topic: {topic}", "agent_logs": logs}
+
+    summaries: List[str] = []
+    
+    for idx, doc in enumerate(filtered_docs, start=1):
+        content = doc.get("content", "")
+        title = doc.get("title", "") or f"Source {idx}"
+        url = doc.get("url", "")
+        
+        prompt = (
+            f"You are a research assistant. Extract the most important facts, updates, and key points "
+            f"from the following source text. Focus on anything relevant to the topic: '{topic}' and pillar: '{pillar}'.\n"
+        )
+        if special:
+            prompt += f"Keep in mind the special instructions: {special}\n"
+        prompt += (
+            "Summarize the key information cleanly. Use bullet points for facts. Do not add meta-commentary.\n\n"
+            f"--- SOURCE TEXT ---\n{content[:12000]}\n"
+        )
+        
+        try:
+            summary = await _ollama_generate(base_url, model, prompt)
+            header = f"[Source {idx}] {title}"
+            if url:
+                header += f"\nURL: {url}"
+            summaries.append(f"{header}\n{summary.strip()}")
+            logs = await _append_log(
+                {**state, "agent_logs": logs},
+                "summarize",
+                "running",
+                f"Summarized source {idx}/{len(filtered_docs)}: {title}"
+            )
+        except Exception as exc:
+            logs = await _append_log(
+                {**state, "agent_logs": logs},
+                "summarize",
+                "warning",
+                f"Failed to summarize source {idx}: {exc}. Using raw snippet instead."
+            )
+            header = f"[Source {idx}] {title}"
+            if url:
+                header += f"\nURL: {url}"
+            summaries.append(f"{header}\n{content[:2000].strip()}")
+
+    final_context = "\n\n---\n\n".join(summaries)
+    
+    logs = await _append_log(
+        {**state, "agent_logs": logs},
+        "summarize",
+        "done",
+        f"Completed map-reduce summarization of {len(filtered_docs)} source(s)."
+    )
+    return {"summarized_context": final_context, "agent_logs": logs}
+
+
 async def summarize_node(state: AgentState) -> Dict[str, Any]:
     logs = await _append_log(state, "summarize", "running", "Building the retrieval corpus.")
     research_documents = state.get("research_documents") or []
@@ -150,6 +216,9 @@ async def summarize_node(state: AgentState) -> Dict[str, Any]:
             "summarized_context": f"Topic: {state.get('topic', '')}",
             "agent_logs": logs,
         }
+
+    if state.get("mode") == "source_dump":
+        return await _summarize_source_dump_mode(state, research_documents, logs)
 
     query = " | ".join(
         part for part in [state.get("topic", ""), state.get("pillar", ""), state.get("special_instructions", "")] if part

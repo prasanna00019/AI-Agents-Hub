@@ -1,56 +1,51 @@
 # ContentPilot
 
-ContentPilot is an agentic AI content generation platform that automates research, drafting, and formatting for multiple social channels via a LangGraph multi-agent pipeline.
+ContentPilot is a local-first, agentic content generation platform for planning, generating, formatting, and reviewing social content across multiple channels.
 
-## 🚀 Features
+## Overview
 
-- **Multi-Agent Pipeline**: 5 specialized AI agents (Research, Summarization, Writer, Formatter, Quality) working in a conditional graph.
-- **Dynamic Content Calendar**: Plan full weeks of content using Weekly Templates, with the ability to override specific per-day pillars and topics.
-- **Generation Modes**:
-  - **Pre-Generated**: AI automatically researches the topic via a local SearXNG engine and drafts the content.
-  - **Source Dump**: Skip AI research by providing your own URLs or text notes.
-- **Smart Formatting**: Platform-specific formatting engines for Twitter/X (threads), LinkedIn (3000 chars), WhatsApp (markdown conversion), and Telegram (MarkdownV2).
-- **Real-Time Progress**: Live SSE (Server-Sent Events) streaming of AI thought processes and pipeline steps.
-- **SearXNG Docker Automation**: Start and stop a local, private search engine container directly from the UI.
-- **Review Queue**: Edit drafts, refine with AI using a built-in chat interface, and copy-paste ready content.
+- Multi-agent pipeline using LangGraph (Research, Summarize, Writer, Formatter, Quality).
+- Weekly planning with calendar-level date overrides.
+- Two generation modes:
+  - Pre-generated research mode (web research through SearXNG).
+  - Source dump mode (user-provided URLs/notes).
+- Platform-aware output formatting (LinkedIn, Twitter/X, WhatsApp, Telegram).
+- Real-time generation progress via SSE streams.
+- Review queue with edit and refinement workflow.
 
-## 🛠 Tech Stack
+## Current Tech Stack
 
-- **Backend**: FastAPI, LangGraph, SQLAlchemy, Pydantic, PostgreSQL, httpx, Docker SDK.
-- **Frontend**: React, Vite, Tailwind CSS v4.
-- **AI Models**: Local LLMs via Ollama.
-- **Search Engine**: Local SearXNG via Docker.
+- Backend: FastAPI, LangGraph, SQLAlchemy, Pydantic, PostgreSQL, httpx.
+- Frontend: React + Vite.
+- AI runtime: Ollama (local model serving).
+- Search: SearXNG (Docker).
 
-## 📦 Quick Start
+## Repository Layout
+
+- `backend/`: FastAPI app, LangGraph agents, services, data models.
+- `frontend/`: React app and UI components.
+- `docker-compose.yml`: Local multi-service setup.
+- `init-scripts/`: startup scripts (including pgvector init helper).
+
+## Quick Start
 
 ### 1. Prerequisites
 
-- **PostgreSQL**: Running locally or via Docker. Create a database named `contentpilot`.
-- **Ollama**: Running locally (`localhost:11434`) with at least one model pulled (e.g., `llama3` or `mistral`).
-- **Docker**: Required to run the SearXNG container for web research.
+- Python 3.10+
+- Node.js 18+
+- PostgreSQL (database: `contentpilot`)
+- Ollama running locally
+- Docker (for SearXNG)
 
-### 2. Backend Setup
+### 2. Start Backend
 
 ```bash
 cd backend
-# Create virtal environment and install dependencies
-uv venv
-uv pip install -r pyproject.toml # or use your preferred package manager
+uv sync
+uvicorn src.backend.main:app --reload --port 8000
 ```
 
-Start the backend server (ensure your Postgres DB is accessible):
-```bash
-uv run uvicorn src.backend.main:app --reload --port 8000
-```
-*Note: Database configuration and Model selection are now handled dynamically via the Frontend Settings UI.*
-
-### 3. SearXNG Setup
-SearXNG is managed automatically by the backend via Docker. You can start/stop it from the Frontend Dashboard or Settings tab. Alternatively, run it manually:
-```bash
-docker-compose up -d searxng
-```
-
-### 4. Frontend Setup
+### 3. Start Frontend
 
 ```bash
 cd frontend
@@ -58,26 +53,33 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173` (or the port Vite provides) in your browser.
+### 4. Optional: Start SearXNG Manually
 
-## 📖 How It Works
+```bash
+docker-compose up -d searxng
+```
 
-1. **Configure Settings**: Go to the Settings tab to enter your Postgres URL, select an Ollama model, and ensure the SearXNG container is running.
-2. **Create a Channel**: Define your audience, tone, and platform (LinkedIn, Twitter, WhatsApp, etc.).
-3. **Set a Weekly Template**: In the Planner tab, set default content pillars (e.g., "Mondays = Concept Deep Dive", "Tuesdays = Tool Spotlight").
-4. **Plan & Override**: Use the Calendar to set **Overrides** for specific dates. An Override lets you replace the default weekly pillar with a custom topic or change the generation mode (e.g., to "Source Dump" if you have specific articles to use).
-5. **Generate**: Click "Generate Week" to let the LangGraph pipeline process 7 days of content, or generate a single day from the Calendar.
-6. **Review**: Check the Review Queue to refine drafts with AI and copy them for publishing.
+Open the frontend on the URL printed by Vite (typically `http://localhost:5173`).
 
-## 🚧 Development Notes
+## How the Flow Works
 
-- **Architecture**: The project uses a layered architecture.
-  - `src/backend/api`: FastAPI routes.
-  - `src/backend/services`: Core business logic (`content_service.py`, `docker_service.py`).
-  - `src/backend/agents`: LangGraph pipeline (`graph.py`).
-  - `src/backend/models`: SQLAlchemy definitions.
-  - `src/backend/utils`: Formatting engines.
-- **Configuration**: Runtime settings are stored in `.contentpilot/settings.json` within the backend directory.
+1. Configure runtime settings from the app.
+2. Create or select a channel profile.
+3. Plan content in weekly templates and date-level overrides.
+4. Generate content for a day or week.
+5. Review, refine, and export platform-ready output.
 
----
-*Built with React, FastAPI, and LangGraph.*
+## IDE Memory MCP
+
+This project can be used with IDE Memory MCP to persist task context, decisions, and progress across coding sessions.
+
+- Initialize project memory before work with `init_project`.
+- Read focused sections like `overview`, `decisions`, and `active_context` to restore context quickly.
+- Write important updates (architecture changes, feature decisions, migration notes) as you progress.
+
+For more details, refer to IDE Memory MCP docs and your workspace memory sections under `/memories`.
+
+## Notes
+
+- Backend and frontend include their own focused READMEs in `backend/README.md` and `frontend/README.md`.
+- Keep root README high-level; place service-specific operational details in subfolder docs.

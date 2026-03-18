@@ -7,6 +7,7 @@ The container runtime config is driven by the URL saved from the frontend.
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 from typing import Any, Dict
 from urllib.parse import urlparse
@@ -14,6 +15,7 @@ from urllib.parse import urlparse
 
 CONTAINER_NAME = "contentpilot-searxng"
 IMAGE = "docker.io/searxng/searxng:latest"
+DOCKER_PATH = r"C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
 
 async def _run(cmd: list[str]) -> tuple[int, str, str]:
@@ -59,7 +61,11 @@ def _config_payload(searxng_url: str | None) -> Dict[str, Any]:
 
 
 async def _remove_existing_container() -> None:
-    await _run(["docker", "rm", "-f", CONTAINER_NAME])
+    await _run(["docker", "stop", CONTAINER_NAME])
+
+async def _container_exists() -> bool:
+    code, out, _ = await _run(["docker", "ps", "-a", "-q", "-f", f"name={CONTAINER_NAME}"])
+    return code == 0 and bool(out.strip())
 
 
 async def check_searxng_status(searxng_url: str | None = None) -> Dict[str, Any]:
@@ -68,6 +74,40 @@ async def check_searxng_status(searxng_url: str | None = None) -> Dict[str, Any]
     if code == 0 and out == "running":
         return {"running": True, "container": CONTAINER_NAME, **config}
     return {"running": False, "container": CONTAINER_NAME, **config}
+
+
+async def _is_docker_running() -> bool:
+    try:
+        proc = await asyncio.wait_for(
+            asyncio.to_thread(
+                subprocess.run,
+                ["docker", "info"],
+                capture_output=True,
+                check=False,
+            ),
+            timeout=5.0,
+        )
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+
+async def _start_docker_desktop() -> bool:
+    """Attempts to start Docker Desktop and waits until it is ready."""
+    try:
+        # Launch Docker Desktop
+        await asyncio.to_thread(subprocess.Popen, [DOCKER_PATH], shell=True)
+        
+        # Wait until Docker is ready (up to 60 seconds)
+        for _ in range(30):
+            if await _is_docker_running():
+                return True
+            await asyncio.sleep(2)
+            
+        return False
+    except Exception as exc:
+        print(f"Failed to start Docker Desktop automatically: {exc}")
+        return False
 
 
 async def start_searxng(searxng_url: str | None = None) -> Dict[str, Any]:
@@ -93,10 +133,33 @@ async def start_searxng(searxng_url: str | None = None) -> Dict[str, Any]:
     if status["running"]:
         return {"ok": True, "message": "SearXNG is already running", **status}
 
-    await _remove_existing_container()
+    # Auto-start Docker Desktop if it is not running
+    if not await _is_docker_running():
+        if os.path.exists(DOCKER_PATH):
+            started = await _start_docker_desktop()
+            if not started:
+                return {
+                    "ok": False,
+                    "message": "Docker Desktop failed to start or isn't ready. Please start it manually.",
+                    "running": False,
+                    "container": CONTAINER_NAME,
+                    **config,
+                }
+        else:
+            return {
+                "ok": False,
+                "message": "Docker daemon is not running and Docker Desktop was not found at the default path.",
+                "running": False,
+                "container": CONTAINER_NAME,
+                **config,
+            }
 
-    code, _, err = await _run(
-        [
+    exists = await _container_exists()
+
+    if exists:
+        code, _, err = await _run(["docker", "start", CONTAINER_NAME])
+    else:
+        code, _, err = await _run([
             "docker",
             "run",
             "-d",
@@ -106,11 +169,12 @@ async def start_searxng(searxng_url: str | None = None) -> Dict[str, Any]:
             f"{config['port']}:8080",
             "-e",
             f"SEARXNG_BASE_URL={config['url']}/",
+            "-e",
+            "SEARXNG_SETTINGS_SEARCH_FORMATS=html,json",
             "--restart",
             "unless-stopped",
             IMAGE,
-        ]
-    )
+        ])
 
     if code == 0:
         return {

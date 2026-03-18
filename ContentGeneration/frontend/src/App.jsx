@@ -5,7 +5,7 @@ import { Field, EmptyState } from './components/Field'
 import { MetricCard, Panel } from './components/MetricCard'
 import { SourceInbox } from './components/SourceInbox'
 import { ContentCalendar } from './components/ContentCalendar'
-import { LoadingOverlay, SkeletonCard, InlineLoader } from './components/Loading'
+import { SkeletonCard, InlineLoader } from './components/Loading'
 import { AgentProgress } from './components/AgentProgress'
 import { Sidebar, MobileHeader } from './components/Sidebar'
 import { FormattedPreview } from './components/FormattedPreview'
@@ -966,7 +966,7 @@ function App() {
 
                   {/* Agent progress */}
                   {(generating || agentLogs.length > 0) && (
-                    <AgentProgress logs={agentLogs} isRunning={generating} />
+                    <AgentProgress logs={agentLogs} isRunning={generating} onClose={() => setAgentLogs([])} />
                   )}
 
                   {/* Channel Memory */}
@@ -1045,7 +1045,7 @@ function App() {
           {activeView === 'review' && (
             <div className="space-y-5 animate-fade-in pb-6">
               {(generating || generatingDay || agentLogs.length > 0) && (
-                <AgentProgress logs={agentLogs} isRunning={generating || generatingDay} />
+                <AgentProgress logs={agentLogs} isRunning={generating || generatingDay} onClose={() => setAgentLogs([])} />
               )}
               <Panel title="Review Queue" subtitle="Edit, refine with AI, and copy-paste ready content.">
                 <div className="mb-5 flex flex-wrap items-end gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
@@ -1441,8 +1441,6 @@ function App() {
         )}
       </Modal>
 
-      {/* ── Loading overlay ─────────────────────────────────────── */}
-      <LoadingOverlay active={generatingDay} message="Generating content…" logs={agentLogs} />
     </div>
   )
 }

@@ -1,1 +1,0 @@
-# This file is deprecated. All channel routes are in content.py.

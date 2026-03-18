@@ -1,7 +1,7 @@
 {
   "database_url": "postgresql://postgres:radha@localhost:6739/CONTENT",
   "ollama_base_url": "http://localhost:11434",
-  "default_ollama_model": "gemini-3-flash-preview:cloud",
+  "default_ollama_model": "gpt-oss:120b-cloud",
   "searxng_url": "http://localhost:5147",
   "searxng_categories": "general",
   "searxng_max_results": 4,
