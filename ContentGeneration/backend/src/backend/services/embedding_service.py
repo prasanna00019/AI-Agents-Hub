@@ -74,6 +74,7 @@ class EmbeddingService:
         """
         stored = 0
         skipped = 0
+        seen_hashes = set()
 
         with self._session() as db:
             for chunk in chunks:
@@ -82,8 +83,13 @@ class EmbeddingService:
                     continue
 
                 content_hash = _content_hash(chunk_text)
+                if content_hash in seen_hashes:
+                    skipped += 1
+                    continue
+                    
+                seen_hashes.add(content_hash)
 
-                # Check if already exists
+                # Check if already exists in DB
                 existing = db.execute(
                     select(EmbeddingRecord).where(
                         EmbeddingRecord.content_hash == content_hash,
@@ -104,6 +110,7 @@ class EmbeddingService:
                     source_title=chunk.get("source_title", ""),
                     kind=chunk.get("kind", "scraped_page"),
                     metadata_json=chunk.get("metadata", {}),
+                    embedding=chunk.get("embedding"),
                     created_at=datetime.utcnow(),
                 )
                 db.add(record)
@@ -135,6 +142,7 @@ class EmbeddingService:
                     "source_title": r.source_title,
                     "kind": r.kind,
                     "metadata": r.metadata_json,
+                    "embedding": r.embedding,
                 }
                 for r in rows
             ]

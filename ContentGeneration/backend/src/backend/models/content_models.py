@@ -1,4 +1,19 @@
-from sqlalchemy import Column, DateTime, Float, JSON, String, Text, UniqueConstraint
+import uuid
+from typing import Dict, Any, List
+from datetime import datetime
+from sqlalchemy import (
+    Column,
+    String,
+    Text,
+    DateTime,
+    JSON,
+    Boolean,
+    ForeignKey,
+    Integer,
+    UniqueConstraint,
+    Float,
+)
+from pgvector.sqlalchemy import Vector
 
 from src.backend.db.database import Base
 
@@ -98,5 +113,6 @@ class EmbeddingRecord(Base):
     source_title = Column(String, nullable=False, default="")
     kind = Column(String, nullable=False, default="scraped_page")  # scraped_page, search_result, provided_text
     metadata_json = Column(JSON, nullable=False, default=dict)
+    embedding = Column(Vector(384))  # assuming all-MiniLM-L6-v2 dimensions
     created_at = Column(DateTime, nullable=False)
 

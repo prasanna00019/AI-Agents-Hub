@@ -557,6 +557,7 @@ class ContentService:
             "searxng_max_results": searxng_max_results,
             "memory_context": memory_context,
             "run_id": run_id,
+            "db_url": self.ensure_database_configured(),
             "agent_logs": [],
         }
 

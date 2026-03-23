@@ -361,6 +361,8 @@ async def build_rag_context(
     documents: Sequence[Dict[str, Any]],
     queries: List[str],
     max_final_chunks: int = 6,
+    embedding_service: Optional[Any] = None,
+    channel_id: str = "",
 ) -> Dict[str, Any]:
     """Build RAG context using parent-child chunking, hybrid retrieval, and re-ranking.
 
@@ -368,6 +370,8 @@ async def build_rag_context(
         documents: List of document dicts with 'content', 'title', 'url', etc.
         queries: List of query strings (from query expansion). At least one required.
         max_final_chunks: Number of final parent chunks to return after re-ranking.
+        embedding_service: Service to persist chunks to pgvector.
+        channel_id: The ID of the channel for persistent embeddings.
     """
     cleaned_documents = [doc for doc in documents if doc.get("content")]
     if not cleaned_documents:
@@ -390,7 +394,6 @@ async def build_rag_context(
         from langchain_community.retrievers import BM25Retriever
         from langchain_core.documents import Document
         from langchain_text_splitters import RecursiveCharacterTextSplitter
-        from langchain.retrievers import EnsembleRetriever
 
         # Build LangChain Document objects
         source_documents = [
@@ -440,9 +443,40 @@ async def build_rag_context(
             for doc in all_child_chunks:
                 child_to_parent[_content_hash(doc.page_content)] = doc
 
+        # ── Compute Embeddings & Store Chunks persistently to pgvector ──
+        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        if embedding_service and channel_id:
+            try:
+                texts_to_embed = [child_doc.page_content for child_doc in all_child_chunks]
+                vectors = embeddings.embed_documents(texts_to_embed)
+            except Exception as e:
+                print(f"[pgvector] Failed to compute embeddings: {e}")
+                vectors = [None] * len(all_child_chunks)
+
+            chunks_to_store = []
+            for child_doc, vector in zip(all_child_chunks, vectors):
+                parent_doc = child_to_parent.get(_content_hash(child_doc.page_content)) or child_doc
+                chunks_to_store.append({
+                    "chunk_text": child_doc.page_content,
+                    "parent_chunk_text": parent_doc.page_content,
+                    "source_url": str(child_doc.metadata.get("url", ""))[:250],
+                    "source_title": str(child_doc.metadata.get("title", ""))[:250],
+                    "kind": child_doc.metadata.get("kind", "scraped_page"),
+                    "metadata": {
+                        "date_published": child_doc.metadata.get("date_published", ""),
+                        "author": child_doc.metadata.get("author", ""),
+                    },
+                    "embedding": vector
+                })
+            try:
+                print(f"[pgvector] Attempting to store {len(chunks_to_store)} chunks for channel {channel_id}")
+                result = embedding_service.store_chunks(channel_id, chunks_to_store)
+                print(f"[pgvector] ✅ Store result: {result}")
+            except Exception as e:
+                print(f"[pgvector] ❌ Failed to store chunks: {type(e).__name__}: {e}")
+
         # ── Hybrid Retrieval on child chunks ──
         fetch_k = min(max(len(all_child_chunks), 30), 50)
-        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         vectorstore = Chroma.from_documents(documents=all_child_chunks, embedding=embeddings)
         semantic_retriever = vectorstore.as_retriever(
             search_type="mmr",
@@ -455,44 +489,57 @@ async def build_rag_context(
         bm25_retriever = BM25Retriever.from_documents(all_child_chunks)
         bm25_retriever.k = fetch_k
 
-        ensemble_retriever = EnsembleRetriever(
-            retrievers=[semantic_retriever, bm25_retriever],
-            weights=[0.5, 0.5],
-        )
-
-        # ── Multi-query retrieval: pool results from all queries ──
-        all_retrieved: List[Document] = []
-        seen_hashes: set[str] = set()
+        # ── Multi-query retrieval with Reciprocal Rank Fusion (Ensemble) ──
+        # Instead of the brittle langchain EnsembleRetriever, we use native RRF.
+        doc_scores: Dict[str, float] = {}
+        doc_map: Dict[str, Document] = {}
 
         for q in queries:
             try:
-                results = ensemble_retriever.invoke(q)
-                for doc in results:
+                sem_docs = semantic_retriever.invoke(q)
+                bm25_docs = bm25_retriever.invoke(q)
+
+                for rank, doc in enumerate(sem_docs):
                     h = _content_hash(doc.page_content)
-                    if h not in seen_hashes:
-                        seen_hashes.add(h)
-                        all_retrieved.append(doc)
-            except Exception:
-                pass
+                    doc_scores[h] = doc_scores.get(h, 0.0) + 1.0 / (60 + rank)
+                    doc_map[h] = doc
+
+                for rank, doc in enumerate(bm25_docs):
+                    h = _content_hash(doc.page_content)
+                    # Downweight BM25 slightly by multiplying its RRF score by 0.5
+                    doc_scores[h] = doc_scores.get(h, 0.0) + (1.0 / (60 + rank)) * 0.5
+                    doc_map[h] = doc
+            except Exception as e:
+                print(f"[RAG] Warning: Retrieval for query '{q}' failed: {e}")
+
+        # Sort by RRF score
+        all_retrieved = [
+            doc_map[h] for h, score in sorted(doc_scores.items(), key=lambda x: x[1], reverse=True)
+        ]
 
         if not all_retrieved:
-            all_retrieved = ensemble_retriever.invoke(primary_query)
+            all_retrieved = all_child_chunks[:max_final_chunks * 2]
 
         # ── Cross-Encoder Re-Ranking ──
         reranked = False
         try:
-            from langchain.retrievers.document_compressors import CrossEncoderReranker
-            from langchain_community.cross_encoders import HuggingFaceCrossEncoder
+            from sentence_transformers import CrossEncoder
 
-            reranker_model = HuggingFaceCrossEncoder(model_name="cross-encoder/ms-marco-MiniLM-L-6-v2")
-            compressor = CrossEncoderReranker(model=reranker_model, top_n=max_final_chunks * 2)
-
-            # Re-rank the pooled child chunks
-            reranked_children = compressor.compress_documents(all_retrieved, primary_query)
-            all_retrieved = list(reranked_children)[:max_final_chunks * 2]
+            # Use sentence-transformers directly to avoid missing langchain wrappers
+            model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+            pairs = [[primary_query, doc.page_content] for doc in all_retrieved]
+            
+            # Predict scores for each (query, chunk) pair
+            scores = model.predict(pairs)
+            
+            # Combine docs with scores and sort
+            scored_docs = list(zip(all_retrieved, scores))  # type: ignore
+            scored_docs.sort(key=lambda x: x[1], reverse=True)
+            
+            all_retrieved = [doc for doc, score in scored_docs][:max_final_chunks * 2]
             reranked = True
-        except Exception:
-            # Fallback: just truncate
+        except Exception as e:
+            print(f"[RAG] Warning: Cross-Encoder reranking failed: {e}")
             all_retrieved = all_retrieved[:max_final_chunks * 2]
 
         # ── Map child chunks → parent chunks (deduplicated) ──
@@ -518,7 +565,8 @@ async def build_rag_context(
 
         selected = selected_parents
 
-    except Exception:
+    except Exception as outer_err:
+        print(f"[RAG] ❌ Primary retrieval pipeline failed: {type(outer_err).__name__}: {outer_err}")
         # Fallback: BM25-only retrieval (no parent-child, no re-ranking)
         try:
             from langchain_community.retrievers import BM25Retriever

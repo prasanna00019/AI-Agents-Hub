@@ -44,6 +44,7 @@ class AgentState(TypedDict):
     memory_context: str
     source_urls: List[str]
     run_id: Optional[str]
+    db_url: str
     agent_logs: List[Dict[str, Any]]
 
 
@@ -276,6 +277,48 @@ async def _summarize_source_dump_mode(
 
     final_context = "\n\n---\n\n".join(summaries)
 
+    # ── Store source dump chunks to pgvector ──
+    db_url = state.get("db_url", "")
+    channel_id = state["channel"].get("id", "")
+    if db_url and channel_id and filtered_docs:
+        try:
+            from src.backend.services.embedding_service import EmbeddingService
+            from langchain_text_splitters import RecursiveCharacterTextSplitter
+            import hashlib
+
+            embedding_service = EmbeddingService(lambda: db_url)
+            parent_splitter = RecursiveCharacterTextSplitter(chunk_size=1600, chunk_overlap=200)
+            child_splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=80)
+
+            chunks_to_store = []
+            for doc in filtered_docs:
+                content = doc.get("content", "")
+                if not content.strip():
+                    continue
+
+                parent_texts = parent_splitter.split_text(content)
+                for parent_text in parent_texts:
+                    child_texts = child_splitter.split_text(parent_text)
+                    for child_text in child_texts:
+                        chunks_to_store.append({
+                            "chunk_text": child_text,
+                            "parent_chunk_text": parent_text,
+                            "source_url": doc.get("url", ""),
+                            "source_title": doc.get("title", ""),
+                            "kind": doc.get("kind", "source_dump"),
+                            "metadata": {
+                                "date_published": doc.get("date_published", ""),
+                                "author": doc.get("author", ""),
+                            }
+                        })
+
+            if chunks_to_store:
+                print(f"[pgvector] Storing {len(chunks_to_store)} source dump chunks for channel {channel_id}")
+                result = embedding_service.store_chunks(channel_id, chunks_to_store)
+                print(f"[pgvector] ✅ Store result: {result}")
+        except Exception as e:
+            print(f"[pgvector] ❌ Source dump embedding failed: {type(e).__name__}: {e}")
+
     logs = await _append_log(
         {**state, "agent_logs": logs}, "summarize", "done",
         f"Completed parallel map-reduce summarization of {len(filtered_docs)} source(s).",
@@ -320,10 +363,20 @@ async def summarize_node(state: AgentState) -> Dict[str, Any]:
         f"Expanded to {len(queries)} query variant(s): {' | '.join(q[:60] for q in queries)}",
     )
 
+    # ── Initialize Embedding Service ──
+    from src.backend.services.embedding_service import EmbeddingService
+    db_url = state.get("db_url", "")
+    print(f"[pgvector-debug] db_url from state: '{db_url[:40]}...' " if db_url else "[pgvector-debug] db_url is EMPTY!")
+    embedding_service = EmbeddingService(lambda: db_url) if db_url else None
+    channel_id = state["channel"].get("id", "")
+    print(f"[pgvector-debug] embedding_service={'initialized' if embedding_service else 'None'}, channel_id='{channel_id}'")
+
     # ── RAG with parent-child chunking + re-ranking + multi-query ──
     rag_result = await build_rag_context(
         documents=research_documents,
         queries=queries,
+        embedding_service=embedding_service,
+        channel_id=channel_id,
     )
     logs = await _append_log(
         {**state, "agent_logs": logs},
