@@ -80,3 +80,23 @@ class MemoryRecord(Base):
     embedding_text = Column(Text, nullable=False, default="")   # text used for embedding search
     relevance_score = Column(Float, nullable=False, default=1.0)
     created_at = Column(DateTime, nullable=False)
+
+
+class EmbeddingRecord(Base):
+    """Persistent vector store backed by pgvector for incremental RAG ingestion."""
+    __tablename__ = "embeddings"
+    __table_args__ = (
+        UniqueConstraint("content_hash", name="uq_embedding_content_hash"),
+    )
+
+    id = Column(String, primary_key=True, index=True)
+    channel_id = Column(String, nullable=False, index=True)
+    content_hash = Column(String(64), nullable=False, index=True)  # MD5 of chunk content
+    chunk_text = Column(Text, nullable=False, default="")
+    parent_chunk_text = Column(Text, nullable=False, default="")  # the parent chunk for parent-child retrieval
+    source_url = Column(String, nullable=False, default="")
+    source_title = Column(String, nullable=False, default="")
+    kind = Column(String, nullable=False, default="scraped_page")  # scraped_page, search_result, provided_text
+    metadata_json = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False)
+

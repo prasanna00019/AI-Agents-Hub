@@ -17,6 +17,7 @@ from src.backend.core.config import settings
 from src.backend.db.database import Base, get_engine, get_session_factory
 from src.backend.models.content_models import (
     ChannelRecord,
+    EmbeddingRecord,
     GenerationRunRecord,
     MemoryRecord,
     ReviewItemRecord,
@@ -60,6 +61,9 @@ class ContentService:
         from src.backend.services.memory_service import MemoryService
         self._memory = MemoryService(get_db_url_fn=self.ensure_database_configured)
 
+        from src.backend.services.embedding_service import EmbeddingService
+        self._embeddings = EmbeddingService(get_db_url_fn=self.ensure_database_configured)
+
     def initialize_storage(self) -> None:
         db_url = self._settings.get("database_url")
         if not db_url or "CHANGE_ME" in str(db_url):
@@ -79,6 +83,7 @@ class ContentService:
                         SourceDumpItemRecord.__table__,
                         GenerationRunRecord.__table__,
                         MemoryRecord.__table__,
+                        EmbeddingRecord.__table__,
                     ],
                 )
             except Exception as exc:
