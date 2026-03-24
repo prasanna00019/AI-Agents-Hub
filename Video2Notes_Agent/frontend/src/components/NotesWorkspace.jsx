@@ -35,9 +35,16 @@ const NotesWorkspace = ({
 }) => {
   const [exportFormat, setExportFormat] = useState('pdf');
   const [exportTemplate, setExportTemplate] = useState('default');
+  const [includeNotes, setIncludeNotes] = useState(true);
+  const [includeDescription, setIncludeDescription] = useState(false);
+  const [includeStudyAssets, setIncludeStudyAssets] = useState(false);
   const renderedNotes = attachTimestampLinks(data?.notes, data?.url);
 
   const handleExport = async () => {
+    if (!includeNotes && !includeDescription && !includeStudyAssets) {
+      window.alert('Select at least one section to export.');
+      return;
+    }
     const response = await axios.post(
       `${API_BASE}/export`,
       {
@@ -47,6 +54,9 @@ const NotesWorkspace = ({
         study_assets: data?.study_assets || {},
         format: exportFormat,
         template: exportTemplate,
+        include_notes: includeNotes,
+        include_description: includeDescription,
+        include_study_assets: includeStudyAssets,
       },
       {
         responseType: 'blob',
@@ -87,6 +97,13 @@ const NotesWorkspace = ({
         setExportFormat={setExportFormat}
         exportTemplate={exportTemplate}
         setExportTemplate={setExportTemplate}
+        includeNotes={includeNotes}
+        setIncludeNotes={setIncludeNotes}
+        includeDescription={includeDescription}
+        setIncludeDescription={setIncludeDescription}
+        includeStudyAssets={includeStudyAssets}
+        setIncludeStudyAssets={setIncludeStudyAssets}
+        appliedSettings={data?.applied_settings}
         onExport={handleExport}
       />
       <ChatSection

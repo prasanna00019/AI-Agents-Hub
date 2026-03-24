@@ -18,6 +18,7 @@ dependencies = [
     "pydub>=0.25.1",
     "python-dotenv>=1.2.2",
     "python-multipart>=0.0.22",
+    "sentence-transformers>=3.4.1",
     "sqlalchemy>=2.0.48",
     "tqdm>=4.67.3",
     "uvicorn>=0.41.0",

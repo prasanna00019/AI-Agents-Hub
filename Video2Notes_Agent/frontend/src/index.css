@@ -75,6 +75,78 @@ html[data-theme='paper'] {
   --highlight: rgba(194, 119, 42, 0.12);
 }
 
+html[data-theme='ocean'] {
+  --page-bg: #e9f6fb;
+  --page-bg-alt: #fbfeff;
+  --ink: #102633;
+  --muted: #557280;
+  --border: #d4e6ef;
+  --card: rgba(255, 255, 255, 0.84);
+  --card-strong: rgba(255, 255, 255, 0.95);
+  --card-soft: rgba(240, 249, 253, 0.92);
+  --accent: #0f766e;
+  --accent-2: #0284c7;
+  --accent-3: #14b8a6;
+  --shadow: 0 24px 70px rgba(15, 118, 110, 0.08);
+  --button-text: #ffffff;
+  --header: rgba(248, 253, 255, 0.82);
+  --highlight: rgba(2, 132, 199, 0.1);
+}
+
+html[data-theme='forest'] {
+  --page-bg: #edf6ef;
+  --page-bg-alt: #fbfefb;
+  --ink: #16251a;
+  --muted: #596f5d;
+  --border: #d6e5d8;
+  --card: rgba(255, 255, 255, 0.84);
+  --card-strong: rgba(255, 255, 255, 0.95);
+  --card-soft: rgba(241, 249, 242, 0.92);
+  --accent: #166534;
+  --accent-2: #15803d;
+  --accent-3: #65a30d;
+  --shadow: 0 24px 70px rgba(22, 101, 52, 0.08);
+  --button-text: #ffffff;
+  --header: rgba(249, 255, 250, 0.82);
+  --highlight: rgba(21, 128, 61, 0.1);
+}
+
+html[data-theme='ember'] {
+  --page-bg: #fff1ec;
+  --page-bg-alt: #fffaf8;
+  --ink: #2b1711;
+  --muted: #7d5a4f;
+  --border: #f0d8cf;
+  --card: rgba(255, 255, 255, 0.86);
+  --card-strong: rgba(255, 255, 255, 0.96);
+  --card-soft: rgba(255, 245, 241, 0.92);
+  --accent: #c2410c;
+  --accent-2: #ea580c;
+  --accent-3: #be123c;
+  --shadow: 0 24px 70px rgba(194, 65, 12, 0.08);
+  --button-text: #fff7ed;
+  --header: rgba(255, 249, 246, 0.82);
+  --highlight: rgba(234, 88, 12, 0.11);
+}
+
+html[data-theme='lavender'] {
+  --page-bg: #f4f0fb;
+  --page-bg-alt: #fffdfd;
+  --ink: #231b34;
+  --muted: #6f6787;
+  --border: #e4ddf1;
+  --card: rgba(255, 255, 255, 0.86);
+  --card-strong: rgba(255, 255, 255, 0.96);
+  --card-soft: rgba(247, 243, 252, 0.92);
+  --accent: #7c3aed;
+  --accent-2: #a855f7;
+  --accent-3: #ec4899;
+  --shadow: 0 24px 70px rgba(124, 58, 237, 0.08);
+  --button-text: #ffffff;
+  --header: rgba(252, 250, 255, 0.82);
+  --highlight: rgba(168, 85, 247, 0.11);
+}
+
 html {
   scroll-behavior: smooth;
 }

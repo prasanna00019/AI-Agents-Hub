@@ -23,6 +23,8 @@ const HomeView = () => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
+  const [playlistPreview, setPlaylistPreview] = useState(null);
+  const [selectedVideoIds, setSelectedVideoIds] = useState([]);
   const navigate = useNavigate();
 
   const buildPayload = () => ({
@@ -80,8 +82,11 @@ const HomeView = () => {
 
       const payload = buildPayload();
       if (isPlaylistUrl(url)) {
-        const response = await axios.post(`${API_BASE}/process/playlist`, payload);
-        navigate(`/batch/${response.data.batch_id}`, { state: { url } });
+        const preview = await axios.post(`${API_BASE}/process/playlist/preview`, payload);
+        const ids = (preview.data.entries || []).map((entry) => entry.id);
+        setPlaylistPreview(preview.data);
+        setSelectedVideoIds(ids);
+        setIsSubmitting(false);
         return;
       }
 
@@ -89,6 +94,24 @@ const HomeView = () => {
       navigate(`/process/${response.data.task_id}`, { state: { url } });
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Failed to connect to backend.');
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleProcessPlaylist = async (processAll = false) => {
+    if (!playlistPreview) return;
+    setError('');
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        ...buildPayload(),
+        selected_video_ids: processAll ? (playlistPreview.entries || []).map((entry) => entry.id) : selectedVideoIds,
+      };
+      const response = await axios.post(`${API_BASE}/process/playlist`, payload);
+      setPlaylistPreview(null);
+      navigate(`/batch/${response.data.batch_id}`, { state: { url } });
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || 'Failed to start playlist processing.');
       setIsSubmitting(false);
     }
   };
@@ -105,6 +128,11 @@ const HomeView = () => {
       status={isSubmitting ? 'processing' : error ? 'error' : 'idle'}
       progress={isSubmitting ? 'Submitting...' : error}
       uploadProgress={uploadProgress}
+      playlistPreview={playlistPreview}
+      selectedVideoIds={selectedVideoIds}
+      setSelectedVideoIds={setSelectedVideoIds}
+      onClosePlaylistPreview={() => setPlaylistPreview(null)}
+      onProcessPlaylist={handleProcessPlaylist}
     />
   );
 };

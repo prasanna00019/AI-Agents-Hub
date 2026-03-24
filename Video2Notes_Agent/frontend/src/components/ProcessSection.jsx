@@ -1,7 +1,8 @@
 import React, { useRef, useState } from 'react';
-import { ArrowRight, Database, Play, Settings2, Sparkles, Upload, Youtube } from 'lucide-react';
+import { ArrowRight, CheckSquare, Database, Play, Settings2, Sparkles, Square, Upload, Youtube } from 'lucide-react';
 import SettingsSection from './SettingsSection';
 import ProcessingSteps from './ProcessingSteps';
+import Modal from './Modal';
 import { useConfig } from '../context/ConfigContext';
 
 const ProcessSection = ({
@@ -16,6 +17,11 @@ const ProcessSection = ({
   progress,
   currentSteps,
   uploadProgress,
+  playlistPreview,
+  selectedVideoIds,
+  setSelectedVideoIds,
+  onClosePlaylistPreview,
+  onProcessPlaylist,
 }) => {
   const fileInputRef = useRef(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -31,7 +37,7 @@ const ProcessSection = ({
   };
 
   return (
-    <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_320px]">
+    <div className="grid gap-8 xl:grid-cols-[minmax(0,1.35fr)_380px]">
       <section className="space-y-8">
         <div className="space-y-5 pt-8">
           <div className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-[11px] font-bold uppercase tracking-[0.28em] shadow-sm app-pill">
@@ -145,12 +151,6 @@ const ProcessSection = ({
               </button>
             </div>
 
-            {showSettings ? (
-              <div className="rounded-[28px] p-3 sm:p-4 app-soft">
-                <SettingsSection disabled={isProcessing} />
-              </div>
-            ) : null}
-
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3 text-sm app-muted">
                 <Database className="h-4 w-4" style={{ color: 'var(--accent)' }} />
@@ -209,6 +209,83 @@ const ProcessSection = ({
           </div>
         </div>
       </aside>
+
+      <Modal open={showSettings} onClose={() => setShowSettings(false)} title="Advanced Runtime Settings" widthClass="max-w-7xl">
+        <SettingsSection disabled={isProcessing} />
+      </Modal>
+
+      <Modal open={Boolean(playlistPreview)} onClose={onClosePlaylistPreview} title={playlistPreview?.title || 'Select Playlist Videos'} widthClass="max-w-4xl">
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm app-muted">
+              Choose which playlist videos to process. The batch will run up to 3 videos in parallel.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedVideoIds((playlistPreview?.entries || []).map((entry) => entry.id))}
+                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold app-card-strong"
+              >
+                <CheckSquare className="h-4 w-4" />
+                Select all
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedVideoIds([])}
+                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold app-card-strong"
+              >
+                <Square className="h-4 w-4" />
+                Clear
+              </button>
+            </div>
+          </div>
+
+          <div className="grid max-h-[52vh] gap-3 overflow-y-auto pr-2">
+            {(playlistPreview?.entries || []).map((entry, index) => {
+              const checked = selectedVideoIds.includes(entry.id);
+              return (
+                <label key={entry.id} className="flex items-center gap-4 rounded-[22px] px-4 py-4 app-card">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(event) => {
+                      if (event.target.checked) {
+                        setSelectedVideoIds((previous) => [...previous, entry.id]);
+                      } else {
+                        setSelectedVideoIds((previous) => previous.filter((id) => id !== entry.id));
+                      }
+                    }}
+                    className="h-4 w-4"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-bold app-title">{index + 1}. {entry.title}</p>
+                    <p className="mt-1 truncate text-xs app-muted">{entry.url}</p>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm app-muted">
+              Selected {selectedVideoIds.length} of {(playlistPreview?.entries || []).length} videos.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <button type="button" onClick={() => onProcessPlaylist(true)} className="rounded-full px-4 py-3 text-sm font-semibold app-card-strong">
+                Process all
+              </button>
+              <button
+                type="button"
+                disabled={selectedVideoIds.length === 0}
+                onClick={() => onProcessPlaylist(false)}
+                className="rounded-full px-5 py-3 text-sm font-semibold app-primary-btn disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Process selected
+              </button>
+            </div>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

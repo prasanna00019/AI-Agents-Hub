@@ -61,42 +61,85 @@ def markdown_to_html(markdown: str) -> str:
     return "\n".join(html_lines)
 
 
-def build_export_markdown(title: str, description: str, notes: str, study_assets: dict, template: str, variant: str) -> str:
+def _study_assets_markdown(study_assets: dict) -> str:
+    assets_lines = []
+    if not study_assets:
+        return ""
+    glossary = study_assets.get("glossary") or []
+    if glossary:
+        assets_lines.append("## Glossary")
+        for item in glossary:
+            assets_lines.append(f"- **{item.get('term', 'Term')}** - {item.get('definition', '')}")
+    revision_sheet = (study_assets.get("revision_sheet") or "").strip()
+    if revision_sheet:
+        assets_lines.append("## Revision Sheet")
+        assets_lines.append(revision_sheet)
+    return "\n".join(assets_lines).strip()
+
+
+def build_export_markdown(
+    title: str,
+    description: str,
+    notes: str,
+    study_assets: dict,
+    template: str,
+    variant: str,
+    include_notes: bool,
+    include_description: bool,
+    include_study_assets: bool,
+) -> str:
     header = [f"# {title or 'Notes'}"]
-    if description:
+    if include_description and description:
         header.append(description)
     if template == "academic":
         header.append("_Prepared study notes_")
 
-    body = notes or ""
+    body = (notes or "") if include_notes else ""
     if variant == "markdown_obsidian":
         frontmatter = ["---", f'title: "{title or "Notes"}"', "source: Video2Notes", "---", ""]
         return "\n".join(frontmatter + header + ["", body])
 
     if variant == "markdown_notion":
-        return "\n\n".join(header + [body])
+        body_parts = header + ([body] if body else [])
+        if include_study_assets:
+            assets_markdown = _study_assets_markdown(study_assets)
+            if assets_markdown:
+                body_parts.append(assets_markdown)
+        return "\n\n".join(body_parts).strip()
 
-    assets_lines = []
-    if study_assets:
-        glossary = study_assets.get("glossary") or []
-        if glossary:
-            assets_lines.append("## Glossary")
-            for item in glossary:
-                assets_lines.append(f"- **{item.get('term', 'Term')}** - {item.get('definition', '')}")
-    return "\n\n".join(header + [body, "\n".join(assets_lines)]).strip()
+    body_parts = header + ([body] if body else [])
+    if include_study_assets:
+        assets_markdown = _study_assets_markdown(study_assets)
+        if assets_markdown:
+            body_parts.append(assets_markdown)
+    return "\n\n".join(body_parts).strip()
 
 
-def build_export_html(title: str, description: str, notes: str, study_assets: dict, template: str) -> str:
+def build_export_html(
+    title: str,
+    description: str,
+    notes: str,
+    study_assets: dict,
+    template: str,
+    include_notes: bool,
+    include_description: bool,
+    include_study_assets: bool,
+) -> str:
     assets = []
-    glossary = (study_assets or {}).get("glossary") or []
-    if glossary:
-        assets.append("<h2>Glossary</h2>")
-        assets.append("<ul>")
-        for item in glossary:
-            assets.append(
-                f"<li><strong>{html.escape(item.get('term', 'Term'))}</strong>: {html.escape(item.get('definition', ''))}</li>"
-            )
-        assets.append("</ul>")
+    if include_study_assets:
+        glossary = (study_assets or {}).get("glossary") or []
+        if glossary:
+            assets.append("<h2>Glossary</h2>")
+            assets.append("<ul>")
+            for item in glossary:
+                assets.append(
+                    f"<li><strong>{html.escape(item.get('term', 'Term'))}</strong>: {html.escape(item.get('definition', ''))}</li>"
+                )
+            assets.append("</ul>")
+        revision_sheet = (study_assets or {}).get("revision_sheet") or ""
+        if revision_sheet:
+            assets.append("<h2>Revision Sheet</h2>")
+            assets.append(markdown_to_html(revision_sheet))
 
     wrapper_class = "academic" if template == "academic" else "default"
     return f"""<!doctype html>
@@ -119,26 +162,40 @@ def build_export_html(title: str, description: str, notes: str, study_assets: di
 <body>
   <main class="sheet {wrapper_class}">
     <h1>{html.escape(title or "Notes")}</h1>
-    {f"<p>{html.escape(description)}</p>" if description else ""}
-    {markdown_to_html(notes)}
+    {f"<p>{html.escape(description)}</p>" if include_description and description else ""}
+    {markdown_to_html(notes) if include_notes else ""}
     {''.join(assets)}
   </main>
 </body>
 </html>"""
 
 
-def build_docx_bytes(title: str, description: str, notes: str, study_assets: dict, template: str) -> bytes:
+def build_docx_bytes(
+    title: str,
+    description: str,
+    notes: str,
+    study_assets: dict,
+    template: str,
+    include_notes: bool,
+    include_description: bool,
+    include_study_assets: bool,
+) -> bytes:
     body_lines = [title or "Notes"]
-    if description:
+    if include_description and description:
         body_lines.extend(["", description])
     if template == "academic":
         body_lines.extend(["", "Prepared study notes"])
-    body_lines.extend(["", re.sub(r"\[(.+?)\]\((.+?)\)", r"\1 (\2)", notes or "")])
-    glossary = (study_assets or {}).get("glossary") or []
-    if glossary:
-        body_lines.extend(["", "Glossary"])
-        for item in glossary:
-            body_lines.append(f"{item.get('term', 'Term')}: {item.get('definition', '')}")
+    if include_notes:
+        body_lines.extend(["", re.sub(r"\[(.+?)\]\((.+?)\)", r"\1 (\2)", notes or "")])
+    if include_study_assets:
+        glossary = (study_assets or {}).get("glossary") or []
+        if glossary:
+            body_lines.extend(["", "Glossary"])
+            for item in glossary:
+                body_lines.append(f"{item.get('term', 'Term')}: {item.get('definition', '')}")
+        revision_sheet = (study_assets or {}).get("revision_sheet") or ""
+        if revision_sheet:
+            body_lines.extend(["", "Revision Sheet", revision_sheet])
 
     paragraphs = []
     for line in body_lines:
@@ -182,24 +239,81 @@ def build_docx_bytes(title: str, description: str, notes: str, study_assets: dic
     return buffer.getvalue()
 
 
-def export_payload(title: str, description: str, notes: str, study_assets: dict, export_format: str, template: str) -> tuple[bytes | str, str, str]:
+def export_payload(
+    title: str,
+    description: str,
+    notes: str,
+    study_assets: dict,
+    export_format: str,
+    template: str,
+    include_notes: bool = True,
+    include_description: bool = False,
+    include_study_assets: bool = False,
+) -> tuple[bytes | str, str, str]:
     safe_name = _slugify(title)
     if export_format in {"markdown_notion", "markdown_obsidian"}:
-        content = build_export_markdown(title, description, notes, study_assets, template, export_format)
+        content = build_export_markdown(
+            title,
+            description,
+            notes,
+            study_assets,
+            template,
+            export_format,
+            include_notes,
+            include_description,
+            include_study_assets,
+        )
         return content, "text/markdown; charset=utf-8", f"{safe_name}.md"
     if export_format == "html":
-        content = build_export_html(title, description, notes, study_assets, template)
+        content = build_export_html(
+            title,
+            description,
+            notes,
+            study_assets,
+            template,
+            include_notes,
+            include_description,
+            include_study_assets,
+        )
         return content, "text/html; charset=utf-8", f"{safe_name}.html"
     if export_format == "docx":
-        content = build_docx_bytes(title, description, notes, study_assets, template)
+        content = build_docx_bytes(
+            title,
+            description,
+            notes,
+            study_assets,
+            template,
+            include_notes,
+            include_description,
+            include_study_assets,
+        )
         return (
             content,
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             f"{safe_name}.docx",
         )
     if export_format == "pdf":
-        content = build_export_html(title, description, notes, study_assets, template)
+        content = build_export_html(
+            title,
+            description,
+            notes,
+            study_assets,
+            template,
+            include_notes,
+            include_description,
+            include_study_assets,
+        )
         return content, "text/html; charset=utf-8", f"{safe_name}.print.html"
 
-    content = build_export_markdown(title, description, notes, study_assets, template, "markdown_notion")
+    content = build_export_markdown(
+        title,
+        description,
+        notes,
+        study_assets,
+        template,
+        "markdown_notion",
+        include_notes,
+        include_description,
+        include_study_assets,
+    )
     return content, "text/markdown; charset=utf-8", f"{safe_name}.md"

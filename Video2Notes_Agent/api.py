@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -18,6 +19,7 @@ from analyzer import ChunkAnalyzer
 from config import Config
 from database import (
     Collection,
+    PlaylistRun,
     TranscriptCache,
     VideoNoteCache,
     get_database_url,
@@ -32,6 +34,7 @@ from source_utils import (
     SourceDetails,
     canonicalize_url,
     expand_youtube_playlist,
+    preview_youtube_playlist,
     validate_upload_filename,
 )
 from study_assets import StudyAssetsGenerator
@@ -66,6 +69,7 @@ TERMINAL_STATUSES = {"completed", "error"}
 tasks: dict[str, dict] = {}
 batches: dict[str, dict] = {}
 rag_engines: dict[str, VideoRAGEngine] = {}
+task_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="video2notes")
 
 
 def get_db_session(database_url: Optional[str] = None):
@@ -164,6 +168,7 @@ class ProcessRequest(BaseModel):
     note_style: str = "study_notes"
     custom_prompt_template: Optional[str] = None
     collection_id: Optional[int] = None
+    selected_video_ids: Optional[list[str]] = None
 
 
 class OpenSavedNoteRequest(BaseModel):
@@ -187,6 +192,9 @@ class ExportRequest(BaseModel):
     study_assets: Optional[dict] = None
     format: str = "markdown_notion"
     template: str = "default"
+    include_notes: bool = True
+    include_description: bool = False
+    include_study_assets: bool = False
 
 
 class CollectionCreateRequest(BaseModel):
@@ -210,6 +218,8 @@ def _create_task(
     source_details: SourceDetails,
     request: ProcessRequest,
     batch_id: Optional[str] = None,
+    playlist_run_id: Optional[str] = None,
+    playlist_title: Optional[str] = None,
     title_hint: Optional[str] = None,
 ) -> str:
     task_id = str(uuid.uuid4())
@@ -227,6 +237,9 @@ def _create_task(
         "source_key": source_details.source_key,
         "note_style": request.note_style,
         "collection_id": request.collection_id,
+        "playlist_run_id": playlist_run_id,
+        "playlist_title": playlist_title,
+        "applied_settings": build_applied_settings(request),
         "steps": _base_steps(),
         "batch_id": batch_id,
         "event_log": [],
@@ -247,6 +260,8 @@ def _create_batch(url: str, title: str = "Playlist batch") -> str:
         "status": "processing",
         "progress": "Expanding playlist",
         "children": [],
+        "selected_video_ids": [],
+        "applied_settings": {},
         "event_log": [],
     }
     _emit(batches, batch_id, "created", _serialize_state(batches[batch_id]))
@@ -320,6 +335,43 @@ def build_note_signature(request: ProcessRequest, source_details: SourceDetails)
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
 
+def build_applied_settings(request: ProcessRequest) -> dict:
+    return {
+        "provider": request.provider,
+        "start_time": request.start_time,
+        "end_time": request.end_time,
+        "whisper_provider": request.whisper_provider,
+        "whisper_model": request.whisper_model,
+        "language": request.language,
+        "detail_level": request.detail_level,
+        "note_style": request.note_style,
+        "custom_prompt_template": request.custom_prompt_template,
+        "keep_qa": request.keep_qa,
+        "keep_examples": request.keep_examples,
+        "include_timestamps": request.include_timestamps,
+        "ollama_model": request.ollama_model,
+        "ollama_base_url": request.ollama_base_url,
+        "database_enabled": bool((request.database_url or "").strip()),
+        "collection_id": request.collection_id,
+    }
+
+
+def _parse_json_blob(value: Optional[str]) -> dict:
+    try:
+        return json.loads(value or "{}")
+    except Exception:
+        return {}
+
+
+def _schedule_task(
+    task_id: str,
+    request: ProcessRequest,
+    source_details: SourceDetails,
+    file_path: Optional[str] = None,
+):
+    return task_executor.submit(_process_task, task_id, request, source_details, file_path)
+
+
 def _custom_prompt_signature(prompt: Optional[str]) -> Optional[str]:
     if not prompt:
         return None
@@ -361,6 +413,8 @@ def ensure_saved_note_rag(task_id: str, note: VideoNoteCache, config: Config):
             "url": note.url,
             "note_style": note.note_style or config.note_style,
             "collection_id": note.collection_id,
+            "playlist_run_id": note.playlist_run_id,
+            "applied_settings": _parse_json_blob(note.applied_settings_json),
             "source_note_id": note.id,
             "saved_note_id": note.id,
             "steps": {step: "completed" for step in TASK_STEPS},
@@ -371,6 +425,43 @@ def ensure_saved_note_rag(task_id: str, note: VideoNoteCache, config: Config):
     if batch_id:
         _sync_batch_child(batch_id, task_id)
     return tasks[task_id]
+
+
+def _clone_cached_note_for_playlist(
+    db,
+    cached: VideoNoteCache,
+    request: ProcessRequest,
+    playlist_run_id: str,
+) -> VideoNoteCache:
+    clone = VideoNoteCache(
+        url=cached.url,
+        source_type=cached.source_type,
+        source_key=cached.source_key,
+        playlist_run_id=playlist_run_id,
+        provider=request.provider,
+        start_time=request.start_time,
+        end_time=request.end_time,
+        title=cached.title,
+        description=cached.description,
+        notes=cached.notes,
+        note_style=request.note_style,
+        custom_prompt_signature=_custom_prompt_signature(request.custom_prompt_template),
+        concepts_text=cached.concepts_text,
+        action_items_text=cached.action_items_text,
+        study_assets_json=cached.study_assets_json,
+        applied_settings_json=json.dumps(build_applied_settings(request), ensure_ascii=False),
+        transcript_cache_id=cached.transcript_cache_id,
+        collection_id=request.collection_id,
+        settings_signature=build_note_signature(request, SourceDetails(
+            source_type=cached.source_type or "url",
+            normalized_url=cached.url,
+            source_key=cached.source_key or f"url:{cached.url}",
+        )),
+    )
+    db.add(clone)
+    db.commit()
+    db.refresh(clone)
+    return clone
 
 
 def _store_uploaded_file(file: UploadFile) -> tuple[str, SourceDetails]:
@@ -430,6 +521,10 @@ def _process_task(
     extractor = None
     try:
         config = build_runtime_config(request)
+        applied_settings = build_applied_settings(request)
+        print("\n=== VideoNotes Applied Settings ===")
+        print(json.dumps(applied_settings, indent=2, ensure_ascii=False))
+        print("=== End Applied Settings ===\n")
         db = get_db_session(request.database_url)
         transcript_cache = None
         chunks = []
@@ -507,7 +602,7 @@ def _process_task(
 
         _update_step(task_id, "rag", "active", "Building Q&A knowledge base...")
         rag = VideoRAGEngine(config, video_id=task_id)
-        rag.populate_database(analyzed_chunks, video_description)
+        rag.populate_database(analyzed_chunks, structured_sections, video_description)
         rag_engines[task_id] = rag
         _update_step(task_id, "rag", "completed", "RAG ready")
 
@@ -517,6 +612,7 @@ def _process_task(
                 url=source_details.normalized_url,
                 source_type=source_details.source_type,
                 source_key=source_details.source_key,
+                playlist_run_id=tasks[task_id].get("playlist_run_id"),
                 provider=request.provider,
                 start_time=request.start_time,
                 end_time=request.end_time,
@@ -528,6 +624,7 @@ def _process_task(
                 concepts_text=concepts_text,
                 action_items_text=action_items_text,
                 study_assets_json=json.dumps(study_assets, ensure_ascii=False),
+                applied_settings_json=json.dumps(applied_settings, ensure_ascii=False),
                 transcript_cache_id=transcript_cache.id if transcript_cache else None,
                 collection_id=request.collection_id,
                 settings_signature=build_note_signature(request, source_details),
@@ -547,6 +644,7 @@ def _process_task(
             study_assets=study_assets,
             video_title=video_title,
             video_description=video_description,
+            applied_settings=applied_settings,
             saved_note_id=saved_note_id,
             source_note_id=saved_note_id,
         )
@@ -578,7 +676,7 @@ async def process_video(request: ProcessRequest, background_tasks: BackgroundTas
             return {"task_id": task_id}
         db.close()
 
-    background_tasks.add_task(_process_task, task_id, request, source_details, None)
+    _schedule_task(task_id, request, source_details, None)
     return {"task_id": task_id}
 
 
@@ -609,8 +707,21 @@ async def process_upload(
             return {"task_id": task_id}
         db.close()
 
-    background_tasks.add_task(_process_task, task_id, payload, source_details, file_path)
+    _schedule_task(task_id, payload, source_details, file_path)
     return {"task_id": task_id}
+
+
+@app.post("/api/process/playlist/preview")
+async def preview_playlist(request: ProcessRequest):
+    source_details = canonicalize_url(request.url)
+    if not source_details.is_playlist:
+        raise HTTPException(status_code=400, detail="The provided URL is not a supported YouTube playlist.")
+    preview = preview_youtube_playlist(request.url)
+    return {
+        "title": preview["title"],
+        "source_key": source_details.source_key,
+        "entries": preview["entries"],
+    }
 
 
 @app.post("/api/process/playlist")
@@ -619,9 +730,31 @@ async def process_playlist(request: ProcessRequest, background_tasks: Background
     if not source_details.is_playlist:
         raise HTTPException(status_code=400, detail="The provided URL is not a supported YouTube playlist.")
 
-    entries = expand_youtube_playlist(request.url)
-    batch_id = _create_batch(request.url, "Playlist batch")
+    preview = preview_youtube_playlist(request.url)
+    entries = preview["entries"]
+    selected_ids = set(request.selected_video_ids or [])
+    if selected_ids:
+        entries = [entry for entry in entries if entry["id"] in selected_ids]
+    if not entries:
+        raise HTTPException(status_code=400, detail="No playlist videos were selected for processing.")
+
+    batch_id = _create_batch(request.url, preview["title"])
     batches[batch_id]["progress"] = f"Queued {len(entries)} playlist videos"
+    batches[batch_id]["selected_video_ids"] = [entry["id"] for entry in entries]
+    batches[batch_id]["applied_settings"] = build_applied_settings(request)
+
+    db = get_db_session(request.database_url)
+    if db:
+        playlist_run = PlaylistRun(
+            id=batch_id,
+            title=preview["title"],
+            url=request.url,
+            source_key=source_details.source_key,
+            selected_video_ids_json=json.dumps(batches[batch_id]["selected_video_ids"]),
+            applied_settings_json=json.dumps(build_applied_settings(request), ensure_ascii=False),
+        )
+        db.merge(playlist_run)
+        db.commit()
 
     for entry in entries:
         child_source = SourceDetails(
@@ -631,10 +764,18 @@ async def process_playlist(request: ProcessRequest, background_tasks: Background
             title_hint=entry["title"],
         )
         child_request = request.model_copy(update={"url": entry["url"]})
-        task_id = _create_task(child_source, child_request, batch_id=batch_id, title_hint=entry["title"])
+        task_id = _create_task(
+            child_source,
+            child_request,
+            batch_id=batch_id,
+            playlist_run_id=batch_id,
+            playlist_title=preview["title"],
+            title_hint=entry["title"],
+        )
         batches[batch_id]["children"].append(
             {
                 "task_id": task_id,
+                "video_id": entry["id"],
                 "title": entry["title"],
                 "url": entry["url"],
                 "status": "processing",
@@ -645,19 +786,25 @@ async def process_playlist(request: ProcessRequest, background_tasks: Background
             }
         )
 
-        db = get_db_session(request.database_url)
         if db:
             cached = _find_cached_note(db, child_request, child_source)
             if cached:
-                ensure_saved_note_rag(task_id, cached, build_runtime_config(child_request))
-                db.close()
+                cloned = _clone_cached_note_for_playlist(db, cached, child_request, batch_id)
+                ensure_saved_note_rag(task_id, cloned, build_runtime_config(child_request))
                 continue
-            db.close()
 
-        background_tasks.add_task(_process_task, task_id, child_request, child_source, None)
+        _schedule_task(task_id, child_request, child_source, None)
+
+    if db:
+        db.close()
 
     _emit(batches, batch_id, "update", _serialize_state(batches[batch_id]))
-    return {"batch_id": batch_id, "children": batches[batch_id]["children"]}
+    return {
+        "batch_id": batch_id,
+        "title": preview["title"],
+        "children": batches[batch_id]["children"],
+        "selected_video_ids": batches[batch_id]["selected_video_ids"],
+    }
 
 
 @app.get("/api/status/{task_id}")
@@ -708,7 +855,7 @@ async def retry_batch_task(batch_id: str, task_id: str, background_tasks: Backgr
         source_key=task["source_key"],
         title_hint=task.get("video_title"),
     )
-    background_tasks.add_task(_process_task, task_id, request, source_details, None)
+    _schedule_task(task_id, request, source_details, None)
     return {"task_id": task_id}
 
 
@@ -727,7 +874,7 @@ async def list_saved_notes(
         raise HTTPException(status_code=400, detail="Unable to connect to the provided database URL")
 
     try:
-        query = db.query(VideoNoteCache)
+        query = db.query(VideoNoteCache).filter(VideoNoteCache.playlist_run_id.is_(None))
         if q:
             like = f"%{q.strip()}%"
             query = query.filter(
@@ -744,6 +891,51 @@ async def list_saved_notes(
 
         notes = query.order_by(VideoNoteCache.id.desc()).all()
         collections = {collection.id: collection.name for collection in db.query(Collection).all()}
+        playlist_children_query = db.query(VideoNoteCache).filter(VideoNoteCache.playlist_run_id.is_not(None))
+        if q:
+            like = f"%{q.strip()}%"
+            playlist_children_query = playlist_children_query.filter(
+                or_(
+                    VideoNoteCache.title.ilike(like),
+                    VideoNoteCache.description.ilike(like),
+                    VideoNoteCache.notes.ilike(like),
+                    VideoNoteCache.concepts_text.ilike(like),
+                    VideoNoteCache.action_items_text.ilike(like),
+                )
+            )
+        if collection_id:
+            playlist_children_query = playlist_children_query.filter(VideoNoteCache.collection_id == collection_id)
+
+        playlist_children = playlist_children_query.order_by(VideoNoteCache.created_at.desc()).all()
+        playlist_runs = {
+            run.id: {
+                "id": run.id,
+                "title": run.title,
+                "url": run.url,
+                "source_key": run.source_key,
+                "applied_settings": _parse_json_blob(run.applied_settings_json),
+                "children": [],
+                "created_at": run.created_at.isoformat() if run.created_at else None,
+            }
+            for run in db.query(PlaylistRun).order_by(PlaylistRun.created_at.desc()).all()
+        }
+        for note in playlist_children:
+            if note.playlist_run_id not in playlist_runs:
+                continue
+            playlist_runs[note.playlist_run_id]["children"].append(
+                {
+                    "id": note.id,
+                    "title": note.title,
+                    "description": note.description,
+                    "url": note.url,
+                    "provider": note.provider,
+                    "source_type": note.source_type,
+                    "note_style": note.note_style,
+                    "collection_id": note.collection_id,
+                    "collection_name": collections.get(note.collection_id),
+                    "created_at": note.created_at.isoformat() if note.created_at else None,
+                }
+            )
         return {
             "notes": [
                 {
@@ -758,10 +950,12 @@ async def list_saved_notes(
                     "collection_name": collections.get(note.collection_id),
                     "start_time": note.start_time,
                     "end_time": note.end_time,
+                    "applied_settings": _parse_json_blob(note.applied_settings_json),
                     "created_at": note.created_at.isoformat() if note.created_at else None,
                 }
                 for note in notes
-            ]
+            ],
+            "playlist_runs": [run for run in playlist_runs.values() if run["children"]],
         }
     finally:
         db.close()
@@ -806,6 +1000,7 @@ async def open_saved_note(note_id: int, request: OpenSavedNoteRequest):
         payload = ensure_saved_note_rag(task_id, note, config)
         payload["task_id"] = task_id
         payload["id"] = note.id
+        payload["applied_settings"] = _parse_json_blob(note.applied_settings_json)
         return payload
     finally:
         db.close()
@@ -927,6 +1122,8 @@ async def delete_collection(collection_id: int, database_url: Optional[str] = No
 
 @app.post("/api/export")
 async def export_note(request: ExportRequest):
+    if not any([request.include_notes, request.include_description, request.include_study_assets]):
+        raise HTTPException(status_code=400, detail="Select at least one section to export.")
     content, media_type, filename = export_payload(
         title=request.title,
         description=request.description or "",
@@ -934,6 +1131,9 @@ async def export_note(request: ExportRequest):
         study_assets=request.study_assets or {},
         export_format=request.format,
         template=request.template,
+        include_notes=request.include_notes,
+        include_description=request.include_description,
+        include_study_assets=request.include_study_assets,
     )
     payload = content.encode("utf-8") if isinstance(content, str) else content
     return Response(

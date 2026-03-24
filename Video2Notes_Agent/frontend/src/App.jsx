@@ -19,7 +19,7 @@ const App = () => {
 
       <Header />
 
-      <main className="relative z-10 mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <main className="relative z-10 mx-auto max-w-[1700px] px-4 py-8 sm:px-6 lg:px-8 xl:px-10">
         <Routes>
           <Route path="/" element={<HomeView />} />
           <Route path="/library" element={<LibraryView />} />
@@ -31,7 +31,7 @@ const App = () => {
       </main>
 
       <footer className="relative z-10 mt-20 border-t backdrop-blur-xl" style={{ borderColor: 'var(--border)', background: 'var(--header)' }}>
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-8 text-sm sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
+        <div className="mx-auto flex max-w-[1700px] flex-col gap-3 px-4 py-8 text-sm sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8 xl:px-10">
           <p className="max-w-2xl leading-relaxed app-muted">
             Turn long-form videos into structured notes, study assets, and searchable library entries with reusable caching and theme-aware workflows.
           </p>

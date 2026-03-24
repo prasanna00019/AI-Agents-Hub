@@ -108,7 +108,7 @@ def canonicalize_url(url: str) -> SourceDetails:
     )
 
 
-def expand_youtube_playlist(url: str) -> list[dict]:
+def preview_youtube_playlist(url: str) -> dict:
     result = subprocess.run(
         ["yt-dlp", "--flat-playlist", "--dump-single-json", url],
         capture_output=True,
@@ -131,4 +131,12 @@ def expand_youtube_playlist(url: str) -> list[dict]:
         )
     if not entries:
         raise ValueError("No playable videos were found in that playlist.")
-    return entries
+    return {
+        "title": payload.get("title") or "Playlist batch",
+        "entries": entries,
+        "source_key": f"youtube_playlist:{payload.get('id') or payload.get('playlist_id') or ''}",
+    }
+
+
+def expand_youtube_playlist(url: str) -> list[dict]:
+    return preview_youtube_playlist(url)["entries"]

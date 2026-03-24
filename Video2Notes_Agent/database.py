@@ -67,6 +67,7 @@ class VideoNoteCache(Base):
     url = Column(String, index=True)
     source_type = Column(String, nullable=True, index=True)
     source_key = Column(String, nullable=True, index=True)
+    playlist_run_id = Column(String, ForeignKey("playlist_runs.id"), nullable=True, index=True)
     provider = Column(String, index=True)
     start_time = Column(String, nullable=True)
     end_time = Column(String, nullable=True)
@@ -78,6 +79,7 @@ class VideoNoteCache(Base):
     concepts_text = Column(Text, nullable=True)
     action_items_text = Column(Text, nullable=True)
     study_assets_json = Column(Text, nullable=True)
+    applied_settings_json = Column(Text, nullable=True)
     transcript_cache_id = Column(Integer, ForeignKey("transcript_cache.id"), nullable=True, index=True)
     collection_id = Column(Integer, ForeignKey("collections.id"), nullable=True, index=True)
     settings_signature = Column(Text, nullable=True, index=True)
@@ -112,6 +114,18 @@ class Collection(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class PlaylistRun(Base):
+    __tablename__ = "playlist_runs"
+
+    id = Column(String, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    url = Column(Text, nullable=False)
+    source_key = Column(String, nullable=False, index=True)
+    selected_video_ids_json = Column(Text, nullable=True)
+    applied_settings_json = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 def _ensure_schema(engine):
     inspector = inspect(engine)
     if "video_notes_cache" not in inspector.get_table_names():
@@ -140,10 +154,14 @@ def _ensure_schema(engine):
         statements.append("ALTER TABLE video_notes_cache ADD COLUMN action_items_text TEXT")
     if "study_assets_json" not in columns:
         statements.append("ALTER TABLE video_notes_cache ADD COLUMN study_assets_json TEXT")
+    if "applied_settings_json" not in columns:
+        statements.append("ALTER TABLE video_notes_cache ADD COLUMN applied_settings_json TEXT")
     if "transcript_cache_id" not in columns:
         statements.append("ALTER TABLE video_notes_cache ADD COLUMN transcript_cache_id INTEGER")
     if "collection_id" not in columns:
         statements.append("ALTER TABLE video_notes_cache ADD COLUMN collection_id INTEGER")
+    if "playlist_run_id" not in columns:
+        statements.append("ALTER TABLE video_notes_cache ADD COLUMN playlist_run_id TEXT")
 
     if not statements:
         return

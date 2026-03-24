@@ -62,6 +62,13 @@ const BatchView = () => {
             {batch.status}
           </div>
         </div>
+        {batch.applied_settings ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">{batch.applied_settings.note_style}</span>
+            <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">{batch.applied_settings.detail_level}</span>
+            <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">{batch.selected_video_ids?.length || batch.children?.length || 0} selected</span>
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-[32px] p-6 app-card">

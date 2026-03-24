@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { Database, FileStack, FolderPlus, Loader2, RefreshCw, Search } from 'lucide-react';
+import { ChevronDown, Database, FileStack, FolderPlus, Loader2, RefreshCw, Search } from 'lucide-react';
 import NotesWorkspace from '../components/NotesWorkspace';
 import { useConfig } from '../context/ConfigContext';
 
@@ -9,6 +9,8 @@ const API_BASE = 'http://localhost:8000/api';
 const LibraryView = () => {
   const { config } = useConfig();
   const [notes, setNotes] = useState([]);
+  const [playlistRuns, setPlaylistRuns] = useState([]);
+  const [expandedRuns, setExpandedRuns] = useState([]);
   const [collections, setCollections] = useState([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState('');
   const [query, setQuery] = useState('');
@@ -34,6 +36,7 @@ const LibraryView = () => {
   const loadNotes = async () => {
     if (!config.databaseUrl.trim()) {
       setNotes([]);
+      setPlaylistRuns([]);
       setActiveNote(null);
       setActiveNoteId(null);
       setError('Enter a Postgres URL in settings to browse saved notes.');
@@ -52,6 +55,7 @@ const LibraryView = () => {
         },
       });
       setNotes(response.data.notes || []);
+      setPlaylistRuns(response.data.playlist_runs || []);
       setListState('ready');
     } catch (err) {
       setListState('error');
@@ -106,6 +110,12 @@ const LibraryView = () => {
       setOpenState('error');
       setError(err.response?.data?.detail || 'Failed to open the selected note.');
     }
+  };
+
+  const toggleRun = (runId) => {
+    setExpandedRuns((previous) =>
+      previous.includes(runId) ? previous.filter((id) => id !== runId) : [...previous, runId]
+    );
   };
 
   const updateNoteCollection = async (noteId, collectionId) => {
@@ -194,6 +204,36 @@ const LibraryView = () => {
               Loading saved notes...
             </div>
           ) : null}
+
+          {playlistRuns.map((run) => {
+            const expanded = expandedRuns.includes(run.id);
+            return (
+              <div key={run.id} className="rounded-[22px] p-4 app-card-strong">
+                <button type="button" onClick={() => toggleRun(run.id)} className="flex w-full items-center justify-between gap-3 text-left">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold app-title">{run.title}</p>
+                    <p className="mt-1 text-xs app-muted">{run.children.length} processed videos</p>
+                  </div>
+                  <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                </button>
+                {expanded ? (
+                  <div className="mt-4 space-y-3">
+                    {run.children.map((child) => (
+                      <button
+                        key={child.id}
+                        type="button"
+                        onClick={() => openSavedNote(child.id)}
+                        className={`w-full rounded-[18px] px-4 py-3 text-left transition-colors ${activeNoteId === child.id ? 'app-primary-btn' : 'app-soft'}`}
+                      >
+                        <p className="line-clamp-2 text-sm font-semibold">{child.title || 'Untitled child note'}</p>
+                        <p className="mt-1 line-clamp-2 text-xs opacity-80">{child.description || child.url}</p>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
 
           {notes.map((note) => (
             <div key={note.id} className={`rounded-[22px] p-4 transition-colors ${activeNoteId === note.id ? 'app-primary-btn' : 'app-card-strong'}`}>

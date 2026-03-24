@@ -58,7 +58,17 @@ class StructuringTests(unittest.TestCase):
 
 class ExportTests(unittest.TestCase):
     def test_obsidian_export_includes_frontmatter(self):
-        payload = build_export_markdown("Test Notes", "Desc", "# Body", {}, "default", "markdown_obsidian")
+        payload = build_export_markdown(
+            "Test Notes",
+            "Desc",
+            "# Body",
+            {},
+            "default",
+            "markdown_obsidian",
+            True,
+            True,
+            False,
+        )
         self.assertTrue(payload.startswith("---"))
         self.assertIn('title: "Test Notes"', payload)
 
