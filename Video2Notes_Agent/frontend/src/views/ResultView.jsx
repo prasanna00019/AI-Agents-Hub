@@ -51,7 +51,7 @@ const ResultView = () => {
             });
             const botMsg = { id: Date.now() + 1, role: 'assistant', text: res.data.answer };
             setMessages(prev => [...prev, botMsg]);
-        } catch (err) {
+        } catch {
             setMessages(prev => [...prev, { 
                 id: Date.now() + 1, 
                 role: 'assistant', 

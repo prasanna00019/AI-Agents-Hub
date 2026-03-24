@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const ConfigContext = createContext();
@@ -8,6 +9,8 @@ const DEFAULT_CONFIG = {
   whisperModel: 'base',
   language: '',
   detailLevel: 'medium',
+  noteStyle: 'study_notes',
+  customPromptTemplate: '',
   keepQa: false,
   keepExamples: true,
   includeTimestamps: true,

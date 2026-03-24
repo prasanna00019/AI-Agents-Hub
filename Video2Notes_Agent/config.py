@@ -33,6 +33,8 @@ class Config:
     # Output
     output_format: str = "markdown"      # markdown / json
     verbose: bool = False
+    note_style: str = "study_notes"
+    custom_prompt_template: Optional[str] = None
 
     # LLM settings
     llm_provider: str = os.environ.get("DEFAULT_LLM_PROVIDER", "anthropic")
@@ -46,6 +48,7 @@ class Config:
 
     # Internal
     temp_dir: str = os.path.join(tempfile.gettempdir(), "video_notes")
+    max_upload_size_mb: int = 1024
 
     def resolved_whisper_model(self) -> str:
         if self.whisper_model:

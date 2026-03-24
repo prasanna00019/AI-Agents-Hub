@@ -1,18 +1,78 @@
 @import "@fontsource-variable/geist";
 @import "tailwindcss";
 
-:root {
+:root,
+html[data-theme='sunrise'] {
   --page-bg: #f6f1e7;
   --page-bg-alt: #fffdf8;
   --ink: #0f172a;
   --muted: #586375;
   --border: #d9e0e7;
   --card: rgba(255, 255, 255, 0.84);
+  --card-strong: rgba(255, 255, 255, 0.94);
+  --card-soft: rgba(248, 250, 252, 0.88);
   --accent: #0f766e;
   --accent-2: #0891b2;
   --accent-3: #ff7b54;
   --shadow: 0 24px 70px rgba(15, 23, 42, 0.08);
+  --button-text: #ffffff;
+  --header: rgba(255, 252, 247, 0.78);
+  --highlight: rgba(8, 145, 178, 0.12);
   font-family: 'Geist Variable', 'Segoe UI', sans-serif;
+}
+
+html[data-theme='sage'] {
+  --page-bg: #ebf3ec;
+  --page-bg-alt: #fcfffd;
+  --ink: #11221b;
+  --muted: #4c665d;
+  --border: #d5e3da;
+  --card: rgba(255, 255, 255, 0.82);
+  --card-strong: rgba(255, 255, 255, 0.94);
+  --card-soft: rgba(243, 248, 245, 0.92);
+  --accent: #256b4c;
+  --accent-2: #2f8f74;
+  --accent-3: #f08a5d;
+  --shadow: 0 24px 70px rgba(17, 34, 27, 0.08);
+  --button-text: #ffffff;
+  --header: rgba(248, 255, 250, 0.78);
+  --highlight: rgba(47, 143, 116, 0.12);
+}
+
+html[data-theme='midnight'] {
+  --page-bg: #0d1726;
+  --page-bg-alt: #122136;
+  --ink: #edf4ff;
+  --muted: #9eb3c9;
+  --border: rgba(148, 163, 184, 0.22);
+  --card: rgba(15, 23, 42, 0.82);
+  --card-strong: rgba(15, 23, 42, 0.94);
+  --card-soft: rgba(30, 41, 59, 0.88);
+  --accent: #38bdf8;
+  --accent-2: #22d3ee;
+  --accent-3: #f97316;
+  --shadow: 0 24px 70px rgba(2, 6, 23, 0.38);
+  --button-text: #082032;
+  --header: rgba(8, 15, 28, 0.78);
+  --highlight: rgba(56, 189, 248, 0.12);
+}
+
+html[data-theme='paper'] {
+  --page-bg: #f4f1ea;
+  --page-bg-alt: #fffdf7;
+  --ink: #261d14;
+  --muted: #6c5a4a;
+  --border: #e6d9c8;
+  --card: rgba(255, 252, 247, 0.86);
+  --card-strong: rgba(255, 250, 242, 0.96);
+  --card-soft: rgba(248, 242, 234, 0.9);
+  --accent: #8a5a2b;
+  --accent-2: #c2772a;
+  --accent-3: #7d9c5b;
+  --shadow: 0 24px 70px rgba(70, 50, 28, 0.08);
+  --button-text: #fffdf7;
+  --header: rgba(255, 250, 242, 0.82);
+  --highlight: rgba(194, 119, 42, 0.12);
 }
 
 html {
@@ -57,11 +117,60 @@ a {
   color: inherit;
 }
 
+.app-card {
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px);
+}
+
+.app-card-strong {
+  border: 1px solid var(--border);
+  background: var(--card-strong);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px);
+}
+
+.app-soft {
+  background: var(--card-soft);
+  border: 1px solid var(--border);
+}
+
+.app-muted {
+  color: var(--muted);
+}
+
+.app-title {
+  color: var(--ink);
+}
+
+.app-primary-btn {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: var(--button-text);
+  box-shadow: 0 16px 36px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.app-primary-btn:hover {
+  filter: brightness(1.03);
+}
+
+.app-pill {
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, white);
+  color: var(--accent);
+}
+
+.theme-select {
+  border: 1px solid var(--border);
+  background: var(--card-strong);
+  color: var(--ink);
+}
+
 .field-shell {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--card-strong);
   color: var(--ink);
   min-height: 48px;
   padding: 0.8rem 1rem;
@@ -77,7 +186,7 @@ a {
 }
 
 .field-shell::placeholder {
-  color: #94a3b8;
+  color: color-mix(in srgb, var(--muted) 65%, white);
 }
 
 .scrollbar-surface {
@@ -135,7 +244,7 @@ a {
 }
 
 .markdown-body p {
-  color: #334155;
+  color: var(--muted);
 }
 
 .markdown-body ul,
@@ -168,9 +277,9 @@ a {
 }
 
 .markdown-body blockquote {
-  border-left: 4px solid rgba(15, 118, 110, 0.5);
-  background: rgba(240, 249, 255, 0.7);
-  color: #0f172a;
+  border-left: 4px solid color-mix(in srgb, var(--accent) 50%, white);
+  background: var(--highlight);
+  color: var(--ink);
   border-radius: 0 18px 18px 0;
   padding: 1rem 1.1rem;
 }
@@ -178,7 +287,7 @@ a {
 .markdown-body pre {
   overflow-x: auto;
   border-radius: 20px;
-  background: #0f172a;
+  background: color-mix(in srgb, var(--ink) 88%, black);
   color: #e2e8f0;
   padding: 1rem 1.1rem;
 }

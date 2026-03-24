@@ -8,6 +8,7 @@ import re
 import subprocess
 import tempfile
 import json
+import uuid
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -54,7 +55,7 @@ class AudioExtractor:
             description = ""
 
         # Download audio only as mp3
-        audio_path = os.path.join(self.config.temp_dir, "audio.mp3")
+        audio_path = os.path.join(self.config.temp_dir, f"audio_{uuid.uuid4().hex}.mp3")
         ytdlp_args = [
             "yt-dlp",
             "--extract-audio",
@@ -96,11 +97,13 @@ class AudioExtractor:
         # If it's already audio, return as-is
         audio_extensions = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac"}
         if ext in audio_extensions and not (self.config.start_time or self.config.end_time):
+            if str(file_path).startswith(self.config.temp_dir):
+                self._temp_files.append(file_path)
             return file_path, title, ""
 
         # Extract audio with FFmpeg
         self._check_dependency("ffmpeg", "brew install ffmpeg  OR  apt install ffmpeg")
-        audio_path = os.path.join(self.config.temp_dir, f"{title}_audio.mp3")
+        audio_path = os.path.join(self.config.temp_dir, f"{title}_{uuid.uuid4().hex}_audio.mp3")
 
         ffmpeg_args = [
             "ffmpeg", "-i", file_path,

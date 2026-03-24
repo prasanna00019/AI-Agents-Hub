@@ -6,6 +6,7 @@ Groups segments into analysis-ready chunks with overlap.
 from dataclasses import dataclass, field
 from typing import List, Optional
 import math
+import json
 
 from config import Config
 
@@ -324,3 +325,43 @@ class WhisperTranscriber:
                 ))
 
         return chunks
+
+
+def serialize_chunks(chunks: List[TranscriptChunk]) -> str:
+    payload = []
+    for chunk in chunks:
+        payload.append(
+            {
+                "index": chunk.index,
+                "segments": [
+                    {
+                        "text": segment.text,
+                        "start": segment.start,
+                        "end": segment.end,
+                    }
+                    for segment in chunk.segments
+                ],
+            }
+        )
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def deserialize_chunks(payload: str) -> List[TranscriptChunk]:
+    raw_chunks = json.loads(payload or "[]")
+    chunks: List[TranscriptChunk] = []
+    for raw_chunk in raw_chunks:
+        segments = [
+            TranscriptSegment(
+                text=segment.get("text", ""),
+                start=float(segment.get("start", 0.0)),
+                end=float(segment.get("end", 0.0)),
+            )
+            for segment in raw_chunk.get("segments", [])
+        ]
+        chunks.append(
+            TranscriptChunk(
+                index=int(raw_chunk.get("index", len(chunks))),
+                segments=segments,
+            )
+        )
+    return chunks

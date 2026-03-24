@@ -1,0 +1,5 @@
+node_modules/
+.python-version
+__pycache__/
+testing_suite.md
+PROJECT_ENHANCEMENT_PLAN.md

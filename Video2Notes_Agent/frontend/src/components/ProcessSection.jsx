@@ -1,61 +1,144 @@
-import React, { useState } from 'react';
-import { ArrowRight, Database, Play, Settings2, Sparkles, Youtube } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { ArrowRight, Database, Play, Settings2, Sparkles, Upload, Youtube } from 'lucide-react';
 import SettingsSection from './SettingsSection';
 import ProcessingSteps from './ProcessingSteps';
 import { useConfig } from '../context/ConfigContext';
 
-const ProcessSection = ({ 
-  url, setUrl, 
-  onGenerate, 
-  status, progress, 
-  currentSteps 
+const ProcessSection = ({
+  mode,
+  setMode,
+  url,
+  setUrl,
+  file,
+  setFile,
+  onGenerate,
+  status,
+  progress,
+  currentSteps,
+  uploadProgress,
 }) => {
+  const fileInputRef = useRef(null);
   const [showSettings, setShowSettings] = useState(false);
   const { config } = useConfig();
+
+  const isProcessing = status === 'processing';
+  const handleDrop = (event) => {
+    event.preventDefault();
+    const droppedFile = event.dataTransfer?.files?.[0];
+    if (droppedFile) {
+      setFile(droppedFile);
+    }
+  };
 
   return (
     <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_320px]">
       <section className="space-y-8">
         <div className="space-y-5 pt-8">
-          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-200 bg-white/80 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.28em] text-cyan-700 shadow-sm">
+          <div className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-[11px] font-bold uppercase tracking-[0.28em] shadow-sm app-pill">
             <Sparkles className="h-3.5 w-3.5" />
             Video to structured notes
           </div>
-          <h2 className="max-w-4xl text-5xl font-black tracking-tight text-slate-900 sm:text-6xl lg:text-7xl">
-            Turn long videos into study-ready notes you can search, save, and revisit.
+          <h2 className="max-w-4xl text-5xl font-black tracking-tight app-title sm:text-6xl lg:text-7xl">
+            Turn videos, uploads, and playlists into notes you can search, save, and study.
           </h2>
-          <p className="max-w-3xl text-lg leading-relaxed text-slate-600 sm:text-xl">
-            Video2Notes extracts speech, organizes the important ideas into readable markdown notes, saves them to your database if you want, and lets you ask follow-up questions with RAG.
+          <p className="max-w-3xl text-lg leading-relaxed app-muted sm:text-xl">
+            Video2Notes now supports local uploads, Google Drive shared videos, YouTube playlists, reusable transcript caching, and richer note outputs without giving up the current single-video workflow.
           </p>
         </div>
 
-        <div className="rounded-[32px] border border-white/80 bg-[rgba(255,255,255,0.78)] p-5 shadow-[0_28px_80px_rgba(15,23,42,0.10)] backdrop-blur-xl sm:p-8">
-          <form onSubmit={onGenerate} className="space-y-6">
-            <label className="flex flex-col gap-3">
-              <span className="text-[11px] font-bold uppercase tracking-[0.28em] text-slate-500">Video URL</span>
-              <div className="flex items-center gap-3 rounded-[26px] border border-slate-200 bg-white px-5 py-4 shadow-sm transition-colors focus-within:border-cyan-300 focus-within:ring-4 focus-within:ring-cyan-100">
-                <Youtube className="h-5 w-5 shrink-0 text-rose-500" />
-                <input
-                  type="url"
-                  placeholder="https://youtube.com/watch?v=..."
-                  className="w-full border-none bg-transparent text-lg font-medium text-slate-900 outline-none placeholder:text-slate-400"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  disabled={status === 'processing'}
-                  required
-                />
+        <div className="rounded-[32px] p-5 sm:p-8 app-card">
+          <div className="mb-5 grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setMode('url')}
+              className={`rounded-[24px] px-5 py-4 text-left transition-colors ${mode === 'url' ? 'app-primary-btn' : 'app-card-strong'}`}
+            >
+              <div className="flex items-center gap-3">
+                <Youtube className="h-5 w-5" />
+                <div>
+                  <p className="text-sm font-bold">URL or playlist</p>
+                  <p className="text-xs opacity-80">YouTube, Google Drive shared files, and YouTube playlists.</p>
+                </div>
               </div>
-            </label>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('upload')}
+              className={`rounded-[24px] px-5 py-4 text-left transition-colors ${mode === 'upload' ? 'app-primary-btn' : 'app-card-strong'}`}
+            >
+              <div className="flex items-center gap-3">
+                <Upload className="h-5 w-5" />
+                <div>
+                  <p className="text-sm font-bold">Local upload</p>
+                  <p className="text-xs opacity-80">Drop a single video or audio file and process it directly.</p>
+                </div>
+              </div>
+            </button>
+          </div>
 
-            <div className="flex flex-col gap-3 rounded-[26px] border border-slate-200 bg-slate-50/80 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <form onSubmit={onGenerate} className="space-y-6">
+            {mode === 'url' ? (
+              <label className="flex flex-col gap-3">
+                <span className="text-[11px] font-bold uppercase tracking-[0.28em] app-muted">Video URL or playlist</span>
+                <div className="flex items-center gap-3 rounded-[26px] px-5 py-4 shadow-sm transition-colors app-card-strong">
+                  <Youtube className="h-5 w-5 shrink-0" style={{ color: 'var(--accent-3)' }} />
+                  <input
+                    type="url"
+                    placeholder="https://youtube.com/watch?v=... or https://drive.google.com/file/d/..."
+                    className="w-full border-none bg-transparent text-lg font-medium outline-none placeholder:opacity-70 app-title"
+                    value={url}
+                    onChange={(event) => setUrl(event.target.value)}
+                    disabled={isProcessing}
+                    required
+                  />
+                </div>
+              </label>
+            ) : (
+              <div className="space-y-3">
+                <span className="text-[11px] font-bold uppercase tracking-[0.28em] app-muted">Upload a local file</span>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={handleDrop}
+                  className="flex min-h-48 w-full flex-col items-center justify-center gap-4 rounded-[28px] border-2 border-dashed px-6 py-8 text-center transition-colors app-card-strong"
+                  style={{ borderColor: 'color-mix(in srgb, var(--accent) 24%, var(--border))' }}
+                >
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full" style={{ background: 'color-mix(in srgb, var(--accent) 14%, white)', color: 'var(--accent)' }}>
+                    <Upload className="h-8 w-8" />
+                  </div>
+                  <div>
+                    <p className="text-base font-bold app-title">{file ? file.name : 'Drop or choose a video/audio file'}</p>
+                    <p className="mt-2 text-sm app-muted">Supported: mp4, mov, mkv, mp3, wav, m4a, ogg, flac, aac</p>
+                  </div>
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".mp4,.mov,.mkv,.mp3,.wav,.m4a,.ogg,.flac,.aac"
+                  className="hidden"
+                  onChange={(event) => setFile(event.target.files?.[0] || null)}
+                />
+                {typeof uploadProgress === 'number' ? (
+                  <div className="space-y-2">
+                    <div className="h-2 rounded-full" style={{ background: 'color-mix(in srgb, var(--accent) 12%, white)' }}>
+                      <div className="h-full rounded-full" style={{ width: `${uploadProgress}%`, background: 'linear-gradient(135deg, var(--accent), var(--accent-2))' }} />
+                    </div>
+                    <p className="text-xs font-semibold app-muted">Upload progress: {uploadProgress}%</p>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-3 rounded-[26px] p-4 sm:flex-row sm:items-center sm:justify-between app-soft">
               <div>
-                <p className="text-sm font-semibold text-slate-900">Advanced runtime settings</p>
-                <p className="text-sm leading-relaxed text-slate-500">Whisper model, database URL, note detail, timestamps, and provider keys now live here.</p>
+                <p className="text-sm font-semibold app-title">Advanced runtime settings</p>
+                <p className="text-sm leading-relaxed app-muted">Whisper options, note style, custom prompt templates, provider keys, timestamps, and database connectivity live here.</p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowSettings((value) => !value)}
-                className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-100"
+                className="inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold app-card-strong"
               >
                 <Settings2 className={`h-4 w-4 transition-transform ${showSettings ? 'rotate-90' : ''}`} />
                 {showSettings ? 'Hide settings' : 'Show settings'}
@@ -63,43 +146,43 @@ const ProcessSection = ({
             </div>
 
             {showSettings ? (
-              <div className="rounded-[28px] border border-slate-200 bg-[rgba(248,250,252,0.9)] p-3 sm:p-4">
-                <SettingsSection disabled={status === 'processing'} />
+              <div className="rounded-[28px] p-3 sm:p-4 app-soft">
+                <SettingsSection disabled={isProcessing} />
               </div>
             ) : null}
 
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3 text-sm text-slate-500">
-                <Database className="h-4 w-4 text-teal-700" />
-                {config.databaseUrl ? 'Saved notes will be written to your configured database.' : 'No database URL set. Processing still works, but library and caching stay disabled.'}
+              <div className="flex items-center gap-3 text-sm app-muted">
+                <Database className="h-4 w-4" style={{ color: 'var(--accent)' }} />
+                {config.databaseUrl ? 'Caching, collections, and library features are enabled for this run.' : 'No database URL set. Generation still works, but caching and library features stay off.'}
               </div>
 
               <button
                 type="submit"
-                disabled={status === 'processing' || !url}
-                className="inline-flex items-center justify-center gap-3 rounded-full bg-slate-900 px-6 py-3 text-base font-bold text-white shadow-lg transition-transform hover:-translate-y-0.5 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isProcessing || (mode === 'url' ? !url : !file)}
+                className="inline-flex items-center justify-center gap-3 rounded-full px-6 py-3 text-base font-bold transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 app-primary-btn"
               >
-                {status === 'processing' ? <Play className="h-5 w-5 animate-pulse" /> : <ArrowRight className="h-5 w-5" />}
-                {status === 'processing' ? 'Submitting request...' : 'Generate notes'}
+                {isProcessing ? <Play className="h-5 w-5 animate-pulse" /> : <ArrowRight className="h-5 w-5" />}
+                {isProcessing ? 'Submitting request...' : mode === 'upload' ? 'Upload and generate' : 'Generate notes'}
               </button>
             </div>
 
             {status === 'error' ? (
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+              <div className="rounded-2xl border px-4 py-3 text-sm font-medium" style={{ borderColor: 'color-mix(in srgb, var(--accent-3) 34%, var(--border))', background: 'color-mix(in srgb, var(--accent-3) 10%, white)', color: 'var(--ink)' }}>
                 {progress}
               </div>
             ) : null}
           </form>
         </div>
 
-        {status === 'processing' ? (
-          <section className="rounded-[30px] border border-cyan-100 bg-white/80 p-6 shadow-[0_24px_70px_rgba(14,165,233,0.08)] backdrop-blur-xl">
+        {isProcessing ? (
+          <section className="rounded-[30px] p-6 app-card">
             <div className="mb-6 flex items-center justify-between gap-4">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-cyan-700">Pipeline</p>
-                <h3 className="mt-2 text-2xl font-black text-slate-900">{progress}</h3>
+                <p className="text-[11px] font-bold uppercase tracking-[0.28em]" style={{ color: 'var(--accent)' }}>Pipeline</p>
+                <h3 className="mt-2 text-2xl font-black app-title">{progress}</h3>
               </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-700">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl" style={{ background: 'color-mix(in srgb, var(--accent) 14%, white)', color: 'var(--accent)' }}>
                 <Play className="h-5 w-5 animate-pulse" />
               </div>
             </div>
@@ -109,20 +192,20 @@ const ProcessSection = ({
       </section>
 
       <aside className="space-y-4 pt-8">
-        <div className="rounded-[28px] border border-slate-200/80 bg-white/80 p-6 shadow-[0_20px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-slate-500">What this app does</p>
-          <div className="mt-4 space-y-3 text-sm leading-relaxed text-slate-600">
-            <p>Process a video URL into structured markdown notes with timestamps, topic grouping, and action items.</p>
-            <p>Choose your LLM, whisper engine, note detail level, and transcription settings directly from the UI.</p>
-            <p>Connect your own Postgres database to cache notes and reopen them later from the library.</p>
+        <div className="rounded-[28px] p-6 app-card">
+          <p className="text-[11px] font-bold uppercase tracking-[0.28em] app-muted">What this app does</p>
+          <div className="mt-4 space-y-3 text-sm leading-relaxed app-muted">
+            <p>Process one video, a local upload, or an entire playlist into structured markdown notes with timestamps, concepts, and action items.</p>
+            <p>Choose note styles, add custom prompt instructions, and generate study assets like flashcards, quiz questions, revision sheets, and glossary terms.</p>
+            <p>Connect your own Postgres database to unlock caching, search, collections, and saved-note reopen flows.</p>
           </div>
         </div>
 
-        <div className="rounded-[28px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(15,23,42,0.95),rgba(15,118,110,0.88))] p-6 text-white shadow-[0_24px_70px_rgba(15,23,42,0.16)]">
-          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-cyan-100">Workflow</p>
-          <div className="mt-4 space-y-3 text-sm leading-relaxed text-slate-100/90">
-            <p>Generate notes from a video, review the markdown in a scrollable reader, and save a PDF from the print dialog.</p>
-            <p>When a database URL is configured, every saved note can be reopened and queried again from the library view.</p>
+        <div className="rounded-[28px] p-6 text-white" style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--accent) 78%, black), color-mix(in srgb, var(--accent-2) 72%, black))', boxShadow: 'var(--shadow)' }}>
+          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-white/70">Workflow</p>
+          <div className="mt-4 space-y-3 text-sm leading-relaxed text-white/90">
+            <p>Use single-video mode for a focused note session or feed a playlist to queue a batch with per-video status and retry support.</p>
+            <p>Themed UI, transcript reuse, and export formats keep the workflow smooth whether you are studying, revising, or building a reusable notes library.</p>
           </div>
         </div>
       </aside>

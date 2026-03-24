@@ -1,20 +1,16 @@
 """
 NotesSynthesizer - Converts analyzed chunks into final structured notes.
-
-Does two things:
-1. Groups chunks by inferred topic sections
-2. Calls Claude one final time to synthesize everything into
-   a coherent, well-structured notes document
 """
 
 import json
-from typing import List, Dict
 from datetime import timedelta
+from typing import List
 
 import litellm
 
-from config import Config
 from analyzer import AnalyzedChunk
+from config import Config
+from note_structuring import StructuredSection, structure_analyzed_chunks
 
 
 class NotesSynthesizer:
@@ -25,44 +21,45 @@ class NotesSynthesizer:
 
     def synthesize(
         self,
-        chunks: List[AnalyzedChunk],
+        chunks: List[AnalyzedChunk] | List[StructuredSection],
         video_title: str,
         total_duration_seconds: float,
     ) -> str:
-        """
-        Produce final notes from all analyzed chunks.
-        Returns markdown string.
-        """
-        # Filter to relevant chunks only
-        relevant = [c for c in chunks if c.classification == "CORE"]
-        if not relevant:
-            # Fallback: include everything
-            relevant = chunks
-
+        structured_sections = self._ensure_sections(chunks)
         if self.config.output_format == "json":
-            return self._synthesize_json(relevant, video_title, total_duration_seconds)
-        else:
-            return self._synthesize_markdown(relevant, video_title, total_duration_seconds)
+            return self._synthesize_json(structured_sections, video_title, total_duration_seconds)
+        return self._synthesize_markdown(structured_sections, video_title, total_duration_seconds)
+
+    def _ensure_sections(
+        self, items: List[AnalyzedChunk] | List[StructuredSection]
+    ) -> List[StructuredSection]:
+        if not items:
+            return []
+        first = items[0]
+        if isinstance(first, StructuredSection):
+            return items  # type: ignore[return-value]
+        return structure_analyzed_chunks(items)  # type: ignore[arg-type]
 
     def _synthesize_markdown(
         self,
-        chunks: List[AnalyzedChunk],
+        sections: List[StructuredSection],
         video_title: str,
         total_duration_seconds: float,
     ) -> str:
-        """Use Claude to produce the final markdown notes."""
-
-        # Build a compact representation of all extracted data
-        extracted_data = self._build_extraction_summary(chunks)
-
+        extracted_data = self._build_extraction_summary(sections)
         duration_str = str(timedelta(seconds=int(total_duration_seconds)))
+        custom_instruction = (
+            f"\nAdditional user instructions:\n{self.config.custom_prompt_template.strip()}\n"
+            if self.config.custom_prompt_template
+            else ""
+        )
 
         prompt = f"""You are creating structured study notes from a video.
 
 ## Video: "{video_title}"
 Duration: {duration_str}
 
-## Extracted Content (from AI analysis of each ~2-minute chunk):
+## Extracted Content:
 {extracted_data}
 
 ---
@@ -71,22 +68,21 @@ Duration: {duration_str}
 Create clean, well-structured Markdown notes from this extracted content.
 
 Rules:
-- Organize by TOPIC, not by time order (unless time order is the natural structure)
-- Group related points from different timestamps together
-- Write a 2-3 sentence **Executive Summary** at the top
-- Use `##` headers for main topics, `###` for sub-topics
-- Use bullet points for key points
-- **Bold** important terms or concepts
-- For concepts/definitions, format as: **Term** — definition
-- For action items, use a separate `## Action Items` section at the end
-- If timestamps are enabled, add `[MM:SS]` inline after key points that come from specific moments
-- Do NOT include filler, jokes, or sponsor content
-- Write notes that a student would actually want to read
+- Organize by topic, not by raw timestamp order unless chronology is essential.
+- Group related ideas from different moments together.
+- Write a 2-3 sentence Executive Summary at the top.
+- Use ## headers for major topics and ### for sub-topics.
+- Use bullet points for key points.
+- Bold important terms or concepts.
+- For concepts/definitions, format as: **Term** - definition
+- Put action items in a dedicated ## Action Items section at the end when relevant.
 - {self.config.detail_instruction}
+- Style mode: {self.config.note_style}
+- {self._note_style_instruction()}
+- {self._timestamp_instruction()}
+{custom_instruction}
 
-{f'Include timestamps like [MM:SS] after specific points.' if self.config.include_timestamps else 'Do not include timestamps.'}
-
-Output clean Markdown only. Start with a `# {video_title}` heading."""
+Output clean Markdown only. Start with a # heading using the video title."""
 
         response = litellm.completion(
             model=self.config.current_model,
@@ -95,20 +91,15 @@ Output clean Markdown only. Start with a `# {video_title}` heading."""
         )
 
         notes = response.choices[0].message.content.strip()
-
-        # Append metadata footer
-        pruned = sum(1 for _ in range(len(chunks)))  # Already filtered to CORE
-        notes += f"\n\n---\n*Generated by VideoNotes · {len(chunks)} core segments · {duration_str} video*\n"
-
+        notes += f"\n\n---\n*Generated by VideoNotes · {len(sections)} sections · {duration_str} video*\n"
         return notes
 
     def _synthesize_json(
         self,
-        chunks: List[AnalyzedChunk],
+        sections: List[StructuredSection],
         video_title: str,
         total_duration_seconds: float,
     ) -> str:
-        """Produce JSON-structured output."""
         output = {
             "title": video_title,
             "duration_seconds": total_duration_seconds,
@@ -117,52 +108,48 @@ Output clean Markdown only. Start with a `# {video_title}` heading."""
             "all_action_items": [],
         }
 
-        # Group by section title
-        sections: Dict[str, dict] = {}
-        for chunk in chunks:
-            title = chunk.section_title or "General"
-            if title not in sections:
-                sections[title] = {
-                    "title": title,
-                    "timestamps": [],
-                    "key_points": [],
-                    "concepts": [],
-                    "action_items": [],
+        for section in sections:
+            output["sections"].append(
+                {
+                    "title": section.title,
+                    "timestamps": section.timestamps,
+                    "key_points": section.key_points,
+                    "concepts": section.concepts,
+                    "action_items": section.action_items,
                 }
-            s = sections[title]
-            s["timestamps"].append(f"{chunk.start_timestamp}–{chunk.end_timestamp}")
-            s["key_points"].extend(chunk.key_points)
-            s["concepts"].extend(chunk.concepts)
-            s["action_items"].extend(chunk.action_items)
+            )
+            output["all_concepts"].extend(section.concepts)
+            output["all_action_items"].extend(section.action_items)
 
-            output["all_concepts"].extend(chunk.concepts)
-            output["all_action_items"].extend(chunk.action_items)
-
-        output["sections"] = list(sections.values())
-        # Deduplicate
         output["all_concepts"] = list(dict.fromkeys(output["all_concepts"]))
         output["all_action_items"] = list(dict.fromkeys(output["all_action_items"]))
-
         return json.dumps(output, indent=2, ensure_ascii=False)
 
-    def _build_extraction_summary(self, chunks: List[AnalyzedChunk]) -> str:
-        """Build a compact text summary of extracted data for the synthesis prompt."""
+    def _build_extraction_summary(self, sections: List[StructuredSection]) -> str:
         lines = []
-
-        for chunk in chunks:
-            lines.append(f"\n### [{chunk.start_timestamp}–{chunk.end_timestamp}]"
-                         + (f" — {chunk.section_title}" if chunk.section_title else ""))
-
-            if chunk.key_points:
-                for pt in chunk.key_points:
-                    lines.append(f"- {pt}")
-
-            if chunk.concepts:
-                for c in chunk.concepts:
-                    lines.append(f"  📌 Concept: {c}")
-
-            if chunk.action_items:
-                for a in chunk.action_items:
-                    lines.append(f"  ✅ Action: {a}")
-
+        for section in sections:
+            timestamp_text = ", ".join(section.timestamps[:3]) or "no timestamps"
+            lines.append(f"\n### {section.title} ({timestamp_text})")
+            for point in section.key_points:
+                lines.append(f"- {point}")
+            for concept in section.concepts:
+                lines.append(f"  Concept: {concept}")
+            for action in section.action_items:
+                lines.append(f"  Action: {action}")
         return "\n".join(lines)
+
+    def _note_style_instruction(self) -> str:
+        instructions = {
+            "study_notes": "Prioritize teaching clarity, important definitions, and key explanations.",
+            "executive_summary": "Prioritize high-signal takeaways, business context, and decisions.",
+            "meeting_notes": "Capture agenda, decisions, owners, open questions, and next steps.",
+            "tutorial_breakdown": "Present the content as a step-by-step walkthrough with ordered guidance.",
+            "actionable_checklist": "Favor concrete actions, tasks, and checklists over long exposition.",
+            "revision_notes": "Compress ideas into concise revision-ready notes with recall cues.",
+        }
+        return instructions.get(self.config.note_style, instructions["study_notes"])
+
+    def _timestamp_instruction(self) -> str:
+        if self.config.include_timestamps:
+            return "Include [MM:SS] timestamps inline after specific points."
+        return "Do not include timestamps."

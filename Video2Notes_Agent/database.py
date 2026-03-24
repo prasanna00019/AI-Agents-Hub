@@ -1,6 +1,17 @@
 import os
 import dotenv
-from sqlalchemy import create_engine, Column, DateTime, Integer, String, Text, func, inspect, text
+from sqlalchemy import (
+    create_engine,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+    inspect,
+    text,
+)
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 dotenv.load_dotenv()
@@ -54,13 +65,50 @@ class VideoNoteCache(Base):
     __tablename__ = "video_notes_cache"
     id = Column(Integer, primary_key=True, index=True)
     url = Column(String, index=True)
+    source_type = Column(String, nullable=True, index=True)
+    source_key = Column(String, nullable=True, index=True)
     provider = Column(String, index=True)
     start_time = Column(String, nullable=True)
     end_time = Column(String, nullable=True)
     title = Column(String)
     description = Column(Text)
     notes = Column(Text)
+    note_style = Column(String, nullable=True)
+    custom_prompt_signature = Column(Text, nullable=True)
+    concepts_text = Column(Text, nullable=True)
+    action_items_text = Column(Text, nullable=True)
+    study_assets_json = Column(Text, nullable=True)
+    transcript_cache_id = Column(Integer, ForeignKey("transcript_cache.id"), nullable=True, index=True)
+    collection_id = Column(Integer, ForeignKey("collections.id"), nullable=True, index=True)
     settings_signature = Column(Text, nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class TranscriptCache(Base):
+    __tablename__ = "transcript_cache"
+
+    id = Column(Integer, primary_key=True, index=True)
+    source_type = Column(String, nullable=False, index=True)
+    source_key = Column(String, nullable=False, index=True)
+    source_url = Column(Text, nullable=True)
+    title = Column(String, nullable=True)
+    description = Column(Text, nullable=True)
+    start_time = Column(String, nullable=True)
+    end_time = Column(String, nullable=True)
+    whisper_provider = Column(String, nullable=False, index=True)
+    whisper_model = Column(String, nullable=False, index=True)
+    language = Column(String, nullable=True)
+    signature = Column(Text, nullable=False, index=True)
+    transcript_json = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Collection(Base):
+    __tablename__ = "collections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, unique=True, index=True)
+    description = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -78,6 +126,24 @@ def _ensure_schema(engine):
         statements.append(
             "ALTER TABLE video_notes_cache ADD COLUMN created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP"
         )
+    if "source_type" not in columns:
+        statements.append("ALTER TABLE video_notes_cache ADD COLUMN source_type TEXT")
+    if "source_key" not in columns:
+        statements.append("ALTER TABLE video_notes_cache ADD COLUMN source_key TEXT")
+    if "note_style" not in columns:
+        statements.append("ALTER TABLE video_notes_cache ADD COLUMN note_style TEXT")
+    if "custom_prompt_signature" not in columns:
+        statements.append("ALTER TABLE video_notes_cache ADD COLUMN custom_prompt_signature TEXT")
+    if "concepts_text" not in columns:
+        statements.append("ALTER TABLE video_notes_cache ADD COLUMN concepts_text TEXT")
+    if "action_items_text" not in columns:
+        statements.append("ALTER TABLE video_notes_cache ADD COLUMN action_items_text TEXT")
+    if "study_assets_json" not in columns:
+        statements.append("ALTER TABLE video_notes_cache ADD COLUMN study_assets_json TEXT")
+    if "transcript_cache_id" not in columns:
+        statements.append("ALTER TABLE video_notes_cache ADD COLUMN transcript_cache_id INTEGER")
+    if "collection_id" not in columns:
+        statements.append("ALTER TABLE video_notes_cache ADD COLUMN collection_id INTEGER")
 
     if not statements:
         return

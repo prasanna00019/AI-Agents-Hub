@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { Database, FileStack, Loader2, RefreshCw } from 'lucide-react';
+import { Database, FileStack, FolderPlus, Loader2, RefreshCw, Search } from 'lucide-react';
 import NotesWorkspace from '../components/NotesWorkspace';
 import { useConfig } from '../context/ConfigContext';
 
@@ -9,6 +9,10 @@ const API_BASE = 'http://localhost:8000/api';
 const LibraryView = () => {
   const { config } = useConfig();
   const [notes, setNotes] = useState([]);
+  const [collections, setCollections] = useState([]);
+  const [selectedCollectionId, setSelectedCollectionId] = useState('');
+  const [query, setQuery] = useState('');
+  const [newCollectionName, setNewCollectionName] = useState('');
   const [listState, setListState] = useState('idle');
   const [openState, setOpenState] = useState('idle');
   const [error, setError] = useState('');
@@ -18,6 +22,14 @@ const LibraryView = () => {
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [isChatting, setIsChatting] = useState(false);
   const chatEndRef = useRef(null);
+
+  const loadCollections = async () => {
+    if (!config.databaseUrl.trim()) return;
+    const response = await axios.get(`${API_BASE}/collections`, {
+      params: { database_url: config.databaseUrl },
+    });
+    setCollections(response.data.collections || []);
+  };
 
   const loadNotes = async () => {
     if (!config.databaseUrl.trim()) {
@@ -33,7 +45,11 @@ const LibraryView = () => {
 
     try {
       const response = await axios.get(`${API_BASE}/notes`, {
-        params: { database_url: config.databaseUrl },
+        params: {
+          database_url: config.databaseUrl,
+          q: query || undefined,
+          collection_id: selectedCollectionId || undefined,
+        },
       });
       setNotes(response.data.notes || []);
       setListState('ready');
@@ -44,12 +60,29 @@ const LibraryView = () => {
   };
 
   useEffect(() => {
-    loadNotes();
+    loadCollections().catch(console.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.databaseUrl]);
+
+  useEffect(() => {
+    loadNotes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.databaseUrl, query, selectedCollectionId]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isChatting]);
+
+  const createCollection = async (event) => {
+    event.preventDefault();
+    if (!newCollectionName.trim()) return;
+    await axios.post(`${API_BASE}/collections`, {
+      name: newCollectionName.trim(),
+      database_url: config.databaseUrl,
+    });
+    setNewCollectionName('');
+    await loadCollections();
+  };
 
   const openSavedNote = async (noteId) => {
     setActiveNoteId(noteId);
@@ -75,11 +108,20 @@ const LibraryView = () => {
     }
   };
 
+  const updateNoteCollection = async (noteId, collectionId) => {
+    await axios.patch(`${API_BASE}/notes/${noteId}`, {
+      collection_id: collectionId || null,
+      database_url: config.databaseUrl,
+    });
+    await loadNotes();
+    if (activeNote?.id === noteId) {
+      setActiveNote((previous) => ({ ...previous, collection_id: collectionId || null }));
+    }
+  };
+
   const handleSendMessage = async (event) => {
     event.preventDefault();
-    if (!currentQuestion.trim() || !activeNote?.task_id || isChatting) {
-      return;
-    }
+    if (!currentQuestion.trim() || !activeNote?.task_id || isChatting) return;
 
     const question = currentQuestion;
     setMessages((previous) => [...previous, { id: Date.now(), role: 'user', text: question }]);
@@ -104,60 +146,79 @@ const LibraryView = () => {
   };
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
-      <aside className="rounded-[30px] border border-white/80 bg-[rgba(255,255,255,0.84)] p-5 shadow-[0_24px_70px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+    <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <aside className="rounded-[30px] p-5 app-card">
         <div className="mb-5 flex items-center justify-between gap-3">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-slate-500">Library</p>
-            <h2 className="mt-1 text-2xl font-black text-slate-900">Saved notes</h2>
+            <p className="text-[11px] font-bold uppercase tracking-[0.28em] app-muted">Library</p>
+            <h2 className="mt-1 text-2xl font-black app-title">Saved notes</h2>
           </div>
-          <button
-            type="button"
-            onClick={loadNotes}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-100"
-          >
+          <button type="button" onClick={loadNotes} className="inline-flex h-10 w-10 items-center justify-center rounded-2xl app-card-strong">
             <RefreshCw className={`h-4 w-4 ${listState === 'loading' ? 'animate-spin' : ''}`} />
           </button>
         </div>
 
-        <div className="mb-5 rounded-[24px] border border-slate-200 bg-slate-50/80 p-4 text-sm leading-relaxed text-slate-600">
-          <div className="mb-2 flex items-center gap-2 text-slate-900">
-            <Database className="h-4 w-4 text-teal-700" />
+        <div className="mb-5 rounded-[24px] p-4 text-sm leading-relaxed app-soft">
+          <div className="mb-2 flex items-center gap-2 app-title">
+            <Database className="h-4 w-4" style={{ color: 'var(--accent)' }} />
             <span className="font-semibold">Database source</span>
           </div>
-          {config.databaseUrl ? <p className="break-all text-xs text-slate-500">{config.databaseUrl}</p> : <p>No database URL configured yet.</p>}
+          {config.databaseUrl ? <p className="break-all text-xs app-muted">{config.databaseUrl}</p> : <p className="app-muted">No database URL configured yet.</p>}
+        </div>
+
+        <label className="mb-4 flex items-center gap-3 rounded-[24px] px-4 py-3 app-card-strong">
+          <Search className="h-4 w-4" style={{ color: 'var(--accent)' }} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search notes, concepts, actions..." className="w-full border-none bg-transparent outline-none app-title" />
+        </label>
+
+        <div className="mb-4 grid gap-3">
+          <select value={selectedCollectionId} onChange={(event) => setSelectedCollectionId(event.target.value)} className="field-shell">
+            <option value="">All collections</option>
+            {collections.map((collection) => (
+              <option key={collection.id} value={collection.id}>{collection.name}</option>
+            ))}
+          </select>
+
+          <form onSubmit={createCollection} className="flex gap-2">
+            <input value={newCollectionName} onChange={(event) => setNewCollectionName(event.target.value)} placeholder="New collection name" className="field-shell" />
+            <button type="submit" className="inline-flex h-12 w-12 items-center justify-center rounded-2xl app-primary-btn">
+              <FolderPlus className="h-4 w-4" />
+            </button>
+          </form>
         </div>
 
         <div className="scrollbar-surface max-h-[60vh] space-y-3 overflow-y-auto pr-1">
           {listState === 'loading' ? (
-            <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-              <Loader2 className="h-4 w-4 animate-spin text-cyan-700" />
+            <div className="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm app-card-strong app-muted">
+              <Loader2 className="h-4 w-4 animate-spin" style={{ color: 'var(--accent)' }} />
               Loading saved notes...
             </div>
           ) : null}
 
           {notes.map((note) => (
-            <button
-              key={note.id}
-              type="button"
-              onClick={() => openSavedNote(note.id)}
-              className={[
-                'w-full rounded-[22px] border px-4 py-4 text-left transition-colors',
-                activeNoteId === note.id
-                  ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
-                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50',
-              ].join(' ')}
-            >
-              <p className="line-clamp-2 text-sm font-bold leading-relaxed">{note.title || 'Untitled note'}</p>
-              <p className={`mt-2 line-clamp-3 text-xs leading-relaxed ${activeNoteId === note.id ? 'text-slate-300' : 'text-slate-500'}`}>
-                {note.description || note.url || 'Saved note'}
-              </p>
-            </button>
+            <div key={note.id} className={`rounded-[22px] p-4 transition-colors ${activeNoteId === note.id ? 'app-primary-btn' : 'app-card-strong'}`}>
+              <button type="button" onClick={() => openSavedNote(note.id)} className="w-full text-left">
+                <p className="line-clamp-2 text-sm font-bold leading-relaxed">{note.title || 'Untitled note'}</p>
+                <p className="mt-2 line-clamp-3 text-xs leading-relaxed opacity-80">
+                  {note.description || note.url || 'Saved note'}
+                </p>
+              </button>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em]">
+                {note.note_style ? <span className="rounded-full px-2 py-1" style={{ background: 'rgba(255,255,255,0.18)' }}>{note.note_style.replaceAll('_', ' ')}</span> : null}
+                {note.collection_name ? <span className="rounded-full px-2 py-1" style={{ background: 'rgba(255,255,255,0.18)' }}>{note.collection_name}</span> : null}
+              </div>
+              <select value={note.collection_id || ''} onChange={(event) => updateNoteCollection(note.id, event.target.value ? Number(event.target.value) : null)} className="field-shell mt-3 text-sm" onClick={(event) => event.stopPropagation()}>
+                <option value="">No collection</option>
+                {collections.map((collection) => (
+                  <option key={collection.id} value={collection.id}>{collection.name}</option>
+                ))}
+              </select>
+            </div>
           ))}
 
           {listState === 'ready' && notes.length === 0 ? (
-            <div className="rounded-[22px] border border-dashed border-slate-300 bg-white/70 px-4 py-6 text-sm leading-relaxed text-slate-500">
-              No saved notes were found in this database yet.
+            <div className="rounded-[22px] border border-dashed px-4 py-6 text-sm leading-relaxed app-muted" style={{ borderColor: 'var(--border)' }}>
+              No saved notes match your current search and collection filter.
             </div>
           ) : null}
         </div>
@@ -175,21 +236,21 @@ const LibraryView = () => {
             chatEndRef={chatEndRef}
           />
         ) : (
-          <div className="flex min-h-[32rem] flex-col items-center justify-center rounded-[32px] border border-dashed border-slate-300 bg-white/60 px-8 text-center shadow-[0_20px_50px_rgba(15,23,42,0.06)]">
-            <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+          <div className="flex min-h-[32rem] flex-col items-center justify-center rounded-[32px] border border-dashed px-8 text-center app-card" style={{ borderColor: 'var(--border)' }}>
+            <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full" style={{ background: 'color-mix(in srgb, var(--accent) 14%, white)', color: 'var(--accent)' }}>
               <FileStack className="h-8 w-8" />
             </div>
-            <h3 className="text-2xl font-black text-slate-900">Open a saved note</h3>
-            <p className="mt-3 max-w-xl text-sm leading-relaxed text-slate-500">
-              Pick any entry from the library to render the saved markdown, download it again, and start a new RAG chat session from the stored content.
+            <h3 className="text-2xl font-black app-title">Open a saved note</h3>
+            <p className="mt-3 max-w-xl text-sm leading-relaxed app-muted">
+              Search your saved notes, filter by collection, and reopen any entry with its study assets and RAG chat flow intact.
             </p>
             {openState === 'loading' ? (
-              <div className="mt-5 inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
+              <div className="mt-5 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold app-primary-btn">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Opening note...
               </div>
             ) : null}
-            {error ? <p className="mt-4 text-sm font-medium text-rose-700">{error}</p> : null}
+            {error ? <p className="mt-4 text-sm font-medium app-title">{error}</p> : null}
           </div>
         )}
       </section>
