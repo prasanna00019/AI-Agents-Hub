@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import tempfile
+import threading
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -13,8 +14,6 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadF
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import or_
-
 from analyzer import ChunkAnalyzer
 from config import Config
 from database import (
@@ -28,12 +27,12 @@ from database import (
 )
 from export_service import export_payload
 from extractor import AudioExtractor
+from hybrid_search import HybridSearchRanker
 from note_structuring import structure_analyzed_chunks, summarize_search_fields
 from rag_engine import VideoRAGEngine
 from source_utils import (
     SourceDetails,
     canonicalize_url,
-    expand_youtube_playlist,
     preview_youtube_playlist,
     validate_upload_filename,
 )
@@ -69,7 +68,8 @@ TERMINAL_STATUSES = {"completed", "error"}
 tasks: dict[str, dict] = {}
 batches: dict[str, dict] = {}
 rag_engines: dict[str, VideoRAGEngine] = {}
-task_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="video2notes")
+batch_execution_limits: dict[str, threading.Semaphore] = {}
+task_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="video2notes")
 
 
 def get_db_session(database_url: Optional[str] = None):
@@ -167,8 +167,11 @@ class ProcessRequest(BaseModel):
     database_url: Optional[str] = None
     note_style: str = "study_notes"
     custom_prompt_template: Optional[str] = None
+    generate_study_assets: bool = False
     collection_id: Optional[int] = None
     selected_video_ids: Optional[list[str]] = None
+    playlist_processing_mode: str = "parallel"
+    playlist_worker_count: int = 3
 
 
 class OpenSavedNoteRequest(BaseModel):
@@ -282,6 +285,7 @@ def build_runtime_config(request: ProcessRequest) -> Config:
     config.include_timestamps = getattr(request, "include_timestamps", config.include_timestamps)
     config.note_style = getattr(request, "note_style", config.note_style)
     config.custom_prompt_template = getattr(request, "custom_prompt_template", config.custom_prompt_template)
+    config.generate_study_assets = getattr(request, "generate_study_assets", config.generate_study_assets)
 
     if getattr(request, "groq_api_key", None):
         config.groq_api_key = request.groq_api_key
@@ -346,6 +350,7 @@ def build_applied_settings(request: ProcessRequest) -> dict:
         "detail_level": request.detail_level,
         "note_style": request.note_style,
         "custom_prompt_template": request.custom_prompt_template,
+        "generate_study_assets": request.generate_study_assets,
         "keep_qa": request.keep_qa,
         "keep_examples": request.keep_examples,
         "include_timestamps": request.include_timestamps,
@@ -353,6 +358,8 @@ def build_applied_settings(request: ProcessRequest) -> dict:
         "ollama_base_url": request.ollama_base_url,
         "database_enabled": bool((request.database_url or "").strip()),
         "collection_id": request.collection_id,
+        "playlist_processing_mode": request.playlist_processing_mode,
+        "playlist_worker_count": 1 if request.playlist_processing_mode == "sequential" else max(1, min(request.playlist_worker_count, 6)),
     }
 
 
@@ -363,13 +370,32 @@ def _parse_json_blob(value: Optional[str]) -> dict:
         return {}
 
 
+def _resolve_playlist_worker_count(request: ProcessRequest) -> int:
+    if request.playlist_processing_mode == "sequential":
+        return 1
+    return max(1, min(request.playlist_worker_count, 6))
+
+
 def _schedule_task(
     task_id: str,
     request: ProcessRequest,
     source_details: SourceDetails,
     file_path: Optional[str] = None,
 ):
-    return task_executor.submit(_process_task, task_id, request, source_details, file_path)
+    batch_id = tasks.get(task_id, {}).get("batch_id")
+
+    def run_with_limit():
+        semaphore = batch_execution_limits.get(batch_id) if batch_id else None
+        if not semaphore:
+            return _process_task(task_id, request, source_details, file_path)
+
+        semaphore.acquire()
+        try:
+            return _process_task(task_id, request, source_details, file_path)
+        finally:
+            semaphore.release()
+
+    return task_executor.submit(run_with_limit)
 
 
 def _custom_prompt_signature(prompt: Optional[str]) -> Optional[str]:
@@ -391,14 +417,30 @@ def _find_cached_note(db, request: ProcessRequest, source_details: SourceDetails
     )
 
 
-def _load_study_assets(note: VideoNoteCache) -> dict:
+def _load_study_assets(note: VideoNoteCache) -> Optional[dict]:
     try:
-        return json.loads(note.study_assets_json or "{}")
+        if not note.study_assets_json:
+            return None
+        loaded = json.loads(note.study_assets_json)
+        return loaded or None
     except Exception:
-        return {}
+        return None
 
 
-def ensure_saved_note_rag(task_id: str, note: VideoNoteCache, config: Config):
+def _note_search_text(note: VideoNoteCache, playlist_title: Optional[str] = None) -> str:
+    parts = [
+        note.title or "",
+        note.title or "",
+        playlist_title or "",
+        note.description or "",
+        note.concepts_text or "",
+        note.action_items_text or "",
+        note.notes or "",
+    ]
+    return "\n".join(part for part in parts if part)
+
+
+def ensure_saved_note_rag(task_id: str, note: VideoNoteCache, config: Config, include_study_assets: bool = True):
     rag = VideoRAGEngine(config, video_id=task_id)
     rag.populate_from_cache(note.notes, note.description)
     rag_engines[task_id] = rag
@@ -407,7 +449,7 @@ def ensure_saved_note_rag(task_id: str, note: VideoNoteCache, config: Config):
             "status": "completed",
             "progress": "Loaded from saved notes",
             "notes": note.notes,
-            "study_assets": _load_study_assets(note),
+            "study_assets": _load_study_assets(note) if include_study_assets else None,
             "video_title": note.title,
             "video_description": note.description,
             "url": note.url,
@@ -448,7 +490,7 @@ def _clone_cached_note_for_playlist(
         custom_prompt_signature=_custom_prompt_signature(request.custom_prompt_template),
         concepts_text=cached.concepts_text,
         action_items_text=cached.action_items_text,
-        study_assets_json=cached.study_assets_json,
+        study_assets_json=cached.study_assets_json if request.generate_study_assets else None,
         applied_settings_json=json.dumps(build_applied_settings(request), ensure_ascii=False),
         transcript_cache_id=cached.transcript_cache_id,
         collection_id=request.collection_id,
@@ -522,6 +564,15 @@ def _process_task(
     try:
         config = build_runtime_config(request)
         applied_settings = build_applied_settings(request)
+        batch_id = tasks[task_id].get("batch_id")
+        if batch_id:
+            print("\n=== Playlist Task Start ===")
+            print(f"batch_id={batch_id}")
+            print(f"task_id={task_id}")
+            print(f"title={tasks[task_id].get('video_title') or source_details.title_hint or source_details.normalized_url}")
+            print(f"mode={batches.get(batch_id, {}).get('playlist_processing_mode')}")
+            print(f"workers={batches.get(batch_id, {}).get('playlist_worker_count')}")
+            print("=== End Playlist Task Start ===\n")
         print("\n=== VideoNotes Applied Settings ===")
         print(json.dumps(applied_settings, indent=2, ensure_ascii=False))
         print("=== End Applied Settings ===\n")
@@ -595,10 +646,14 @@ def _process_task(
         notes = synthesizer.synthesize(structured_sections, video_title, total_duration)
         _update_step(task_id, "synthesis", "completed", "Notes generated")
 
-        _update_step(task_id, "assets", "active", "Generating study assets...")
-        assets_generator = StudyAssetsGenerator(config)
-        study_assets = assets_generator.generate(video_title, notes)
-        _update_step(task_id, "assets", "completed", "Study assets generated")
+        study_assets = None
+        if config.generate_study_assets:
+            _update_step(task_id, "assets", "active", "Generating study assets...")
+            assets_generator = StudyAssetsGenerator(config)
+            study_assets = assets_generator.generate(video_title, notes)
+            _update_step(task_id, "assets", "completed", "Study assets generated")
+        else:
+            _update_step(task_id, "assets", "skipped", "Study assets skipped for this run")
 
         _update_step(task_id, "rag", "active", "Building Q&A knowledge base...")
         rag = VideoRAGEngine(config, video_id=task_id)
@@ -623,7 +678,7 @@ def _process_task(
                 custom_prompt_signature=_custom_prompt_signature(request.custom_prompt_template),
                 concepts_text=concepts_text,
                 action_items_text=action_items_text,
-                study_assets_json=json.dumps(study_assets, ensure_ascii=False),
+                study_assets_json=json.dumps(study_assets, ensure_ascii=False) if study_assets else None,
                 applied_settings_json=json.dumps(applied_settings, ensure_ascii=False),
                 transcript_cache_id=transcript_cache.id if transcript_cache else None,
                 collection_id=request.collection_id,
@@ -671,7 +726,12 @@ async def process_video(request: ProcessRequest, background_tasks: BackgroundTas
     if db:
         cached = _find_cached_note(db, request, source_details)
         if cached:
-            ensure_saved_note_rag(task_id, cached, build_runtime_config(request))
+            ensure_saved_note_rag(
+                task_id,
+                cached,
+                build_runtime_config(request),
+                include_study_assets=request.generate_study_assets,
+            )
             db.close()
             return {"task_id": task_id}
         db.close()
@@ -698,7 +758,12 @@ async def process_upload(
     if db:
         cached = _find_cached_note(db, payload, source_details)
         if cached:
-            ensure_saved_note_rag(task_id, cached, build_runtime_config(payload))
+            ensure_saved_note_rag(
+                task_id,
+                cached,
+                build_runtime_config(payload),
+                include_study_assets=payload.generate_study_assets,
+            )
             db.close()
             try:
                 os.remove(file_path)
@@ -739,9 +804,20 @@ async def process_playlist(request: ProcessRequest, background_tasks: Background
         raise HTTPException(status_code=400, detail="No playlist videos were selected for processing.")
 
     batch_id = _create_batch(request.url, preview["title"])
+    worker_count = _resolve_playlist_worker_count(request)
+    batch_execution_limits[batch_id] = threading.Semaphore(worker_count)
+    print("\n=== Playlist Execution Settings ===")
+    print(f"batch_id={batch_id}")
+    print(f"title={preview['title']}")
+    print(f"mode={request.playlist_processing_mode}")
+    print(f"workers={worker_count}")
+    print(f"selected_videos={len(entries)}")
+    print("=== End Playlist Execution Settings ===\n")
     batches[batch_id]["progress"] = f"Queued {len(entries)} playlist videos"
     batches[batch_id]["selected_video_ids"] = [entry["id"] for entry in entries]
     batches[batch_id]["applied_settings"] = build_applied_settings(request)
+    batches[batch_id]["playlist_processing_mode"] = request.playlist_processing_mode
+    batches[batch_id]["playlist_worker_count"] = worker_count
 
     db = get_db_session(request.database_url)
     if db:
@@ -790,7 +866,12 @@ async def process_playlist(request: ProcessRequest, background_tasks: Background
             cached = _find_cached_note(db, child_request, child_source)
             if cached:
                 cloned = _clone_cached_note_for_playlist(db, cached, child_request, batch_id)
-                ensure_saved_note_rag(task_id, cloned, build_runtime_config(child_request))
+                ensure_saved_note_rag(
+                    task_id,
+                    cloned,
+                    build_runtime_config(child_request),
+                    include_study_assets=child_request.generate_study_assets,
+                )
                 continue
 
         _schedule_task(task_id, child_request, child_source, None)
@@ -804,6 +885,8 @@ async def process_playlist(request: ProcessRequest, background_tasks: Background
         "title": preview["title"],
         "children": batches[batch_id]["children"],
         "selected_video_ids": batches[batch_id]["selected_video_ids"],
+        "playlist_processing_mode": request.playlist_processing_mode,
+        "playlist_worker_count": worker_count,
     }
 
 
@@ -848,6 +931,10 @@ async def retry_batch_task(batch_id: str, task_id: str, background_tasks: Backgr
     task["steps"] = _base_steps()
     _emit(tasks, task_id, "update", _serialize_state(task))
     _sync_batch_child(batch_id, task_id)
+    batch_execution_limits.setdefault(
+        batch_id,
+        threading.Semaphore(max(1, batches.get(batch_id, {}).get("playlist_worker_count", 1))),
+    )
 
     source_details = SourceDetails(
         source_type=task["source_type"],
@@ -867,7 +954,7 @@ async def list_saved_notes(
 ):
     resolved_url = get_database_url(database_url)
     if not resolved_url:
-        return {"notes": []}
+        return {"notes": [], "playlist_runs": []}
 
     db = get_db_session(resolved_url)
     if not db:
@@ -875,38 +962,28 @@ async def list_saved_notes(
 
     try:
         query = db.query(VideoNoteCache).filter(VideoNoteCache.playlist_run_id.is_(None))
-        if q:
-            like = f"%{q.strip()}%"
-            query = query.filter(
-                or_(
-                    VideoNoteCache.title.ilike(like),
-                    VideoNoteCache.description.ilike(like),
-                    VideoNoteCache.notes.ilike(like),
-                    VideoNoteCache.concepts_text.ilike(like),
-                    VideoNoteCache.action_items_text.ilike(like),
-                )
-            )
         if collection_id:
             query = query.filter(VideoNoteCache.collection_id == collection_id)
 
         notes = query.order_by(VideoNoteCache.id.desc()).all()
         collections = {collection.id: collection.name for collection in db.query(Collection).all()}
         playlist_children_query = db.query(VideoNoteCache).filter(VideoNoteCache.playlist_run_id.is_not(None))
-        if q:
-            like = f"%{q.strip()}%"
-            playlist_children_query = playlist_children_query.filter(
-                or_(
-                    VideoNoteCache.title.ilike(like),
-                    VideoNoteCache.description.ilike(like),
-                    VideoNoteCache.notes.ilike(like),
-                    VideoNoteCache.concepts_text.ilike(like),
-                    VideoNoteCache.action_items_text.ilike(like),
-                )
-            )
         if collection_id:
             playlist_children_query = playlist_children_query.filter(VideoNoteCache.collection_id == collection_id)
 
         playlist_children = playlist_children_query.order_by(VideoNoteCache.created_at.desc()).all()
+        playlist_runs_by_id = {
+            run.id: run
+            for run in db.query(PlaylistRun).order_by(PlaylistRun.created_at.desc()).all()
+        }
+        if q and q.strip():
+            notes = HybridSearchRanker.rank(q, notes, lambda note: _note_search_text(note))
+            playlist_children = HybridSearchRanker.rank(
+                q,
+                playlist_children,
+                lambda note: _note_search_text(note, playlist_runs_by_id.get(note.playlist_run_id).title if note.playlist_run_id in playlist_runs_by_id else None),
+            )
+
         playlist_runs = {
             run.id: {
                 "id": run.id,
@@ -917,7 +994,7 @@ async def list_saved_notes(
                 "children": [],
                 "created_at": run.created_at.isoformat() if run.created_at else None,
             }
-            for run in db.query(PlaylistRun).order_by(PlaylistRun.created_at.desc()).all()
+            for run in playlist_runs_by_id.values()
         }
         for note in playlist_children:
             if note.playlist_run_id not in playlist_runs:
@@ -935,6 +1012,15 @@ async def list_saved_notes(
                     "collection_name": collections.get(note.collection_id),
                     "created_at": note.created_at.isoformat() if note.created_at else None,
                 }
+            )
+        playlist_run_list = [run for run in playlist_runs.values() if run["children"]]
+        if q and q.strip():
+            ranked_run_ids = []
+            for note in playlist_children:
+                if note.playlist_run_id and note.playlist_run_id not in ranked_run_ids:
+                    ranked_run_ids.append(note.playlist_run_id)
+            playlist_run_list.sort(
+                key=lambda run: ranked_run_ids.index(run["id"]) if run["id"] in ranked_run_ids else len(ranked_run_ids)
             )
         return {
             "notes": [
@@ -955,7 +1041,7 @@ async def list_saved_notes(
                 }
                 for note in notes
             ],
-            "playlist_runs": [run for run in playlist_runs.values() if run["children"]],
+            "playlist_runs": playlist_run_list,
         }
     finally:
         db.close()

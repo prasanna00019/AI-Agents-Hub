@@ -67,6 +67,12 @@ const BatchView = () => {
             <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">{batch.applied_settings.note_style}</span>
             <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">{batch.applied_settings.detail_level}</span>
             <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">{batch.selected_video_ids?.length || batch.children?.length || 0} selected</span>
+            <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">
+              {batch.playlist_processing_mode === 'sequential' ? 'one by one' : `parallel x${batch.playlist_worker_count || 1}`}
+            </span>
+            <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">
+              {batch.applied_settings.generate_study_assets ? 'study assets on' : 'study assets off'}
+            </span>
           </div>
         ) : null}
       </section>

@@ -11,6 +11,7 @@ const DEFAULT_CONFIG = {
   detailLevel: 'medium',
   noteStyle: 'study_notes',
   customPromptTemplate: '',
+  generateStudyAssets: false,
   keepQa: false,
   keepExamples: true,
   includeTimestamps: true,
@@ -23,6 +24,8 @@ const DEFAULT_CONFIG = {
   startTime: '',
   endTime: '',
   databaseUrl: '',
+  playlistProcessingMode: 'parallel',
+  playlistWorkerCount: 3,
 };
 
 const WHISPER_DEFAULTS = {

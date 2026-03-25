@@ -196,7 +196,7 @@ const ProcessSection = ({
           <p className="text-[11px] font-bold uppercase tracking-[0.28em] app-muted">What this app does</p>
           <div className="mt-4 space-y-3 text-sm leading-relaxed app-muted">
             <p>Process one video, a local upload, or an entire playlist into structured markdown notes with timestamps, concepts, and action items.</p>
-            <p>Choose note styles, add custom prompt instructions, and generate study assets like flashcards, quiz questions, revision sheets, and glossary terms.</p>
+            <p>Choose note styles, add custom prompt instructions, and optionally generate study assets like flashcards, quiz questions, revision sheets, and glossary terms.</p>
             <p>Connect your own Postgres database to unlock caching, search, collections, and saved-note reopen flows.</p>
           </div>
         </div>
@@ -205,6 +205,7 @@ const ProcessSection = ({
           <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-white/70">Workflow</p>
           <div className="mt-4 space-y-3 text-sm leading-relaxed text-white/90">
             <p>Use single-video mode for a focused note session or feed a playlist to queue a batch with per-video status and retry support.</p>
+            <p>Playlist batches can run in parallel with a chosen worker count or one by one, depending on the settings you pick.</p>
             <p>Themed UI, transcript reuse, and export formats keep the workflow smooth whether you are studying, revising, or building a reusable notes library.</p>
           </div>
         </div>
@@ -218,7 +219,7 @@ const ProcessSection = ({
         <div className="space-y-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm app-muted">
-              Choose which playlist videos to process. The batch will run up to 3 videos in parallel.
+              Choose which playlist videos to process. Current mode: {config.playlistProcessingMode === 'sequential' ? 'one by one' : `parallel with ${Math.max(1, config.playlistWorkerCount)} workers`}.
             </p>
             <div className="flex flex-wrap gap-2">
               <button

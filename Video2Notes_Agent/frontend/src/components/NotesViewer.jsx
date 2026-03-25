@@ -10,6 +10,16 @@ const ExportToggle = ({ label, checked, onChange, disabled = false }) => (
   </label>
 );
 
+const hasStudyAssets = (studyAssets) => {
+  if (!studyAssets) return false;
+  return Boolean(
+    (studyAssets.flashcards || []).length
+    || (studyAssets.quiz || []).length
+    || (studyAssets.glossary || []).length
+    || (studyAssets.revision_sheet || '').trim()
+  );
+};
+
 const StudyAssetsPanel = ({ studyAssets, activeTab, setActiveTab }) => {
   const tabs = [
     { id: 'flashcards', label: 'Flashcards' },
@@ -120,7 +130,7 @@ const NotesViewer = ({
 
             <div className="mb-4 flex flex-wrap items-center gap-2">
               {noteStyle ? <span className="rounded-full px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] app-pill">{noteStyle.replaceAll('_', ' ')}</span> : null}
-              {studyAssets ? (
+              {hasStudyAssets(studyAssets) ? (
                 <button type="button" onClick={() => setShowStudyAssets(true)} className="rounded-full px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] app-pill">
                   study assets
                 </button>
@@ -176,6 +186,9 @@ const NotesViewer = ({
               <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">{appliedSettings.whisper_provider || 'whisper'}</span>
               <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">{appliedSettings.detail_level || 'detail'}</span>
               <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">{appliedSettings.note_style || 'style'}</span>
+              <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">
+                {appliedSettings.generate_study_assets ? 'study assets on' : 'study assets off'}
+              </span>
               {appliedSettings.custom_prompt_template ? <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">custom prompt enabled</span> : null}
             </div>
           </div>

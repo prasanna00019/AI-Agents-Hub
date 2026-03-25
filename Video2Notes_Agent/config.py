@@ -35,6 +35,7 @@ class Config:
     verbose: bool = False
     note_style: str = "study_notes"
     custom_prompt_template: Optional[str] = None
+    generate_study_assets: bool = False
 
     # LLM settings
     llm_provider: str = os.environ.get("DEFAULT_LLM_PROVIDER", "anthropic")

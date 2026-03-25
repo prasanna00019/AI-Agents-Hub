@@ -76,6 +76,7 @@ class NotesSynthesizer:
             else ""
         )
 
+        summary_heading = self._summary_heading_instruction()
         return f"""You are creating structured study notes from a video.
 
 ## Video: "{video_title}"
@@ -92,7 +93,7 @@ Create clean, well-structured Markdown notes from this extracted content.
 Rules:
 - Organize by topic, not by raw timestamp order unless chronology is essential.
 - Group related ideas from different moments together.
-- Write a 2-3 sentence Executive Summary at the top.
+- Start with a 2-3 sentence {summary_heading} at the top.
 - Use ## headers for major topics and ### for sub-topics.
 - Use bullet points for key points.
 - Bold important terms or concepts.
@@ -165,3 +166,8 @@ Output clean Markdown only. Start with a # heading using the video title."""
         if self.config.include_timestamps:
             return "Include [MM:SS] timestamps inline after specific points."
         return "Do not include timestamps."
+
+    def _summary_heading_instruction(self) -> str:
+        if self.config.note_style == "executive_summary":
+            return "Executive Summary section"
+        return "Overview section"

@@ -43,11 +43,14 @@ const HomeView = () => {
     detail_level: config.detailLevel,
     note_style: config.noteStyle,
     custom_prompt_template: config.customPromptTemplate || null,
+    generate_study_assets: config.generateStudyAssets,
     keep_qa: config.keepQa,
     keep_examples: config.keepExamples,
     include_timestamps: config.includeTimestamps,
     groq_api_key: config.groqApiKey || null,
     database_url: config.databaseUrl || null,
+    playlist_processing_mode: config.playlistProcessingMode,
+    playlist_worker_count: config.playlistWorkerCount,
   });
 
   const handleGenerate = async (event) => {

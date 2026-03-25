@@ -222,6 +222,44 @@ const SettingsSection = ({ disabled }) => {
             <textarea rows="8" value={config.customPromptTemplate} disabled={disabled} onChange={(event) => updateConfig({ customPromptTemplate: event.target.value })} placeholder="Example: explain like a teacher, surface all technical terms, and end with a quick revision drill." className="field-shell min-h-36 resize-y" />
           </Field>
 
+          <Toggle
+            label="Generate study assets"
+            helper="Optional. When off, the flashcards/quiz/revision/glossary step is skipped entirely for faster runs."
+            checked={config.generateStudyAssets}
+            disabled={disabled}
+            onChange={(value) => updateConfig({ generateStudyAssets: value })}
+          />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Playlist processing">
+              <select
+                value={config.playlistProcessingMode}
+                disabled={disabled}
+                onChange={(event) =>
+                  updateConfig({
+                    playlistProcessingMode: event.target.value,
+                    playlistWorkerCount: event.target.value === 'sequential' ? 1 : Math.max(2, config.playlistWorkerCount || 3),
+                  })
+                }
+                className="field-shell"
+              >
+                <option value="parallel">Parallel</option>
+                <option value="sequential">One by one</option>
+              </select>
+            </Field>
+            <Field label="Playlist workers" helper="Used only in parallel mode.">
+              <input
+                type="number"
+                min="1"
+                max="6"
+                value={config.playlistProcessingMode === 'sequential' ? 1 : config.playlistWorkerCount}
+                disabled={disabled || config.playlistProcessingMode === 'sequential'}
+                onChange={(event) => updateConfig({ playlistWorkerCount: Number(event.target.value || 1) })}
+                className="field-shell"
+              />
+            </Field>
+          </div>
+
           <div className="rounded-[22px] px-4 py-3 text-sm leading-relaxed app-soft app-muted">
             <div className="mb-2 flex items-center gap-2 font-semibold app-title">
               <Database className="h-4 w-4" style={{ color: 'var(--accent)' }} />

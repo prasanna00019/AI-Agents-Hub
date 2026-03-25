@@ -5,8 +5,11 @@ import types
 sys.modules.setdefault("litellm", types.SimpleNamespace())
 
 from analyzer import AnalyzedChunk
+from config import Config
+from hybrid_search import HybridSearchRanker
 from note_structuring import structure_analyzed_chunks
 from source_utils import canonicalize_url, extract_google_drive_file_id
+from synthesizer import NotesSynthesizer
 from transcriber import TranscriptChunk, TranscriptSegment
 from export_service import build_export_markdown
 
@@ -71,6 +74,28 @@ class ExportTests(unittest.TestCase):
         )
         self.assertTrue(payload.startswith("---"))
         self.assertIn('title: "Test Notes"', payload)
+
+
+class SynthesizerTests(unittest.TestCase):
+    def test_non_executive_styles_request_overview_section(self):
+        config = Config(note_style="study_notes")
+        synthesizer = NotesSynthesizer(config)
+        prompt = synthesizer.build_markdown_prompt([], "Demo", 120)
+        self.assertIn("Overview section", prompt)
+        self.assertNotIn("Executive Summary section", prompt)
+
+
+class HybridSearchTests(unittest.TestCase):
+    def test_hybrid_search_prefers_keyword_relevant_result(self):
+        results = HybridSearchRanker.rank(
+            "cache transcripts",
+            [
+                {"title": "Cooking tips", "body": "Fresh herbs and sauces"},
+                {"title": "Transcript cache", "body": "Reuse transcripts across note styles"},
+            ],
+            lambda item: f"{item['title']} {item['body']}",
+        )
+        self.assertEqual(results[0]["title"], "Transcript cache")
 
 
 if __name__ == "__main__":
