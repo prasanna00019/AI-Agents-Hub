@@ -1,4 +1,4 @@
-@import "@fontsource-variable/geist";
+@import "@fontsource-variable/inter";
 @import "tailwindcss";
 
 :root,
@@ -21,7 +21,7 @@ html[data-theme='sunrise'] {
   --bg-orb-1: rgba(255, 123, 84, 0.18);
   --bg-orb-2: rgba(8, 145, 178, 0.14);
   --bg-orb-3: rgba(15, 118, 110, 0.12);
-  font-family: 'Geist Variable', 'Segoe UI', sans-serif;
+  font-family: 'Inter Variable', 'Segoe UI', sans-serif;
 }
 
 html[data-theme='sage'] {
@@ -252,7 +252,7 @@ body {
     radial-gradient(circle at 70% 8%, var(--bg-orb-3), transparent 26%),
     linear-gradient(180deg, var(--page-bg-alt), var(--page-bg));
   color: var(--ink);
-  font-family: 'Geist Variable', 'Segoe UI', sans-serif;
+  font-family: 'Inter Variable', 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   margin: 0;
 }
@@ -387,6 +387,9 @@ html[data-theme='graphite'] .app-card-strong {
 
 .app-title {
   color: var(--ink);
+  font-family: 'Inter Variable', 'Segoe UI', sans-serif;
+  letter-spacing: -0.02em;
+  font-weight: 800;
 }
 
 .app-primary-btn {
@@ -533,10 +536,11 @@ html[data-theme='graphite'] .app-primary-btn {
 
 .app-display {
   color: var(--ink);
+  font-family: 'Inter Variable', 'Segoe UI', sans-serif;
   font-size: clamp(2.8rem, 4vw, 4.8rem);
   line-height: 0.96;
-  letter-spacing: -0.05em;
-  font-weight: 950;
+  letter-spacing: -0.055em;
+  font-weight: 900;
 }
 
 .app-lead {
@@ -611,8 +615,9 @@ html[data-theme='graphite'] .app-chip {
 
 .app-section-title {
   color: var(--ink);
-  letter-spacing: -0.04em;
-  font-weight: 900;
+  font-family: 'Inter Variable', 'Segoe UI', sans-serif;
+  letter-spacing: -0.03em;
+  font-weight: 850;
   line-height: 1.04;
 }
 

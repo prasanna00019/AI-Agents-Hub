@@ -111,6 +111,7 @@ const NotesViewer = ({
   onExport,
 }) => {
   const [showStudyAssets, setShowStudyAssets] = useState(false);
+  const [showExportOptions, setShowExportOptions] = useState(false);
   const [activeAssetTab, setActiveAssetTab] = useState('flashcards');
 
   return (
@@ -151,48 +152,20 @@ const NotesViewer = ({
           </div>
 
           <div className="space-y-4 rounded-[28px] p-4 app-soft">
-            <div className="flex items-center gap-2">
-              <Settings2 className="h-4 w-4" style={{ color: 'var(--accent)' }} />
-              <span className="text-xs font-bold uppercase tracking-[0.24em] app-muted">Export options</span>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Settings2 className="h-4 w-4" style={{ color: 'var(--accent)' }} />
+                <span className="text-xs font-bold uppercase tracking-[0.24em] app-muted">Export</span>
+              </div>
+              <button type="button" onClick={() => setShowExportOptions(true)} className="rounded-full px-4 py-2 text-sm font-semibold app-primary-btn">
+                Open options
+              </button>
             </div>
-            <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value)} className="field-shell">
-              <option value="pdf">PDF (print preview)</option>
-              <option value="docx">DOCX</option>
-              <option value="html">HTML</option>
-              <option value="markdown_notion">Notion Markdown</option>
-              <option value="markdown_obsidian">Obsidian Markdown</option>
-            </select>
-            <select value={exportTemplate} onChange={(event) => setExportTemplate(event.target.value)} className="field-shell">
-              <option value="default">Default template</option>
-              <option value="academic">Academic template</option>
-            </select>
-            <div className="grid gap-3">
-              <ExportToggle label="Notes" checked={includeNotes} onChange={setIncludeNotes} />
-              <ExportToggle label="Video description" checked={includeDescription} onChange={setIncludeDescription} />
-              <ExportToggle label="Study assets" checked={includeStudyAssets} onChange={setIncludeStudyAssets} />
-            </div>
-            <button type="button" onClick={onExport} className="inline-flex w-full items-center justify-center gap-2 rounded-full px-4 py-3 text-sm font-semibold app-primary-btn">
-              <Download className="h-4 w-4" />
-              Export selected format
-            </button>
+            <p className="text-sm leading-relaxed app-muted">
+              Open the export modal to choose format, template, and included sections before downloading.
+            </p>
           </div>
         </div>
-
-        {appliedSettings ? (
-          <div className="mt-6 rounded-[24px] p-4 app-soft">
-            <p className="text-[11px] font-bold uppercase tracking-[0.24em] app-muted">Applied settings</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">{appliedSettings.provider || 'provider'}</span>
-              <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">{appliedSettings.whisper_provider || 'whisper'}</span>
-              <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">{appliedSettings.detail_level || 'detail'}</span>
-              <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">{appliedSettings.note_style || 'style'}</span>
-              <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">
-                {appliedSettings.generate_study_assets ? 'study assets on' : 'study assets off'}
-              </span>
-              {appliedSettings.custom_prompt_template ? <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">custom prompt enabled</span> : null}
-            </div>
-          </div>
-        ) : null}
 
         <div className="mt-6 rounded-[30px] p-5 sm:p-7 app-soft">
           <div className="mb-4 flex items-center gap-2">
@@ -216,6 +189,51 @@ const NotesViewer = ({
           </div>
         </div>
         <StudyAssetsPanel studyAssets={studyAssets} activeTab={activeAssetTab} setActiveTab={setActiveAssetTab} />
+      </Modal>
+
+      <Modal open={showExportOptions} onClose={() => setShowExportOptions(false)} title="Export Options" widthClass="max-w-4xl">
+        <div className="space-y-5">
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="flex flex-col gap-2">
+              <span className="app-eyebrow">Export format</span>
+              <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value)} className="field-shell">
+                <option value="pdf">PDF (print preview)</option>
+                <option value="docx">DOCX</option>
+                <option value="html">HTML</option>
+                <option value="markdown_notion">Notion Markdown</option>
+                <option value="markdown_obsidian">Obsidian Markdown</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-2">
+              <span className="app-eyebrow">Template</span>
+              <select value={exportTemplate} onChange={(event) => setExportTemplate(event.target.value)} className="field-shell">
+                <option value="default">Default template</option>
+                <option value="academic">Academic template</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="grid gap-3">
+            <ExportToggle label="Notes" checked={includeNotes} onChange={setIncludeNotes} />
+            <ExportToggle label="Video description" checked={includeDescription} onChange={setIncludeDescription} />
+            <ExportToggle label="Study assets" checked={includeStudyAssets} onChange={setIncludeStudyAssets} />
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm app-muted">Choose what to include, then export with the selected format.</p>
+            <button
+              type="button"
+              onClick={() => {
+                onExport();
+                setShowExportOptions(false);
+              }}
+              className="inline-flex items-center justify-center gap-2 rounded-full px-4 py-3 text-sm font-semibold app-primary-btn"
+            >
+              <Download className="h-4 w-4" />
+              Export selected format
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   );
