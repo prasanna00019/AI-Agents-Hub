@@ -12,6 +12,10 @@ export const THEME_OPTIONS = [
   { id: 'forest', label: 'Forest' },
   { id: 'ember', label: 'Ember' },
   { id: 'lavender', label: 'Lavender' },
+  { id: 'aurora', label: 'Aurora' },
+  { id: 'graphite', label: 'Graphite' },
+  { id: 'sunset', label: 'Sunset' },
+  { id: 'citrus', label: 'Citrus' },
 ];
 
 export const useTheme = () => useContext(ThemeContext);
