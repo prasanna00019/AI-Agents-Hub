@@ -229,15 +229,15 @@ const LibraryView = () => {
   };
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-      <aside className="rounded-[30px] p-5 app-card">
+    <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+      <aside className="rounded-[34px] p-5 app-card">
         <div className="mb-5 flex items-center justify-between gap-3">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.28em] app-muted">Library</p>
+            <p className="app-eyebrow">Library</p>
             <h2 className="mt-1 text-2xl font-black app-title">Saved notes</h2>
           </div>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={loadNotes} className="inline-flex h-10 w-10 items-center justify-center rounded-2xl app-card-strong">
+            <button type="button" onClick={loadNotes} className="inline-flex h-10 w-10 items-center justify-center rounded-2xl app-surface-strong">
               <RefreshCw className={`h-4 w-4 ${listState === 'loading' ? 'animate-spin' : ''}`} />
             </button>
             <button type="button" onClick={() => setShowBrowser(true)} className="rounded-full px-4 py-2 text-sm font-semibold app-primary-btn">
@@ -264,12 +264,12 @@ const LibraryView = () => {
         </div>
 
         <div className="space-y-3">
-          <div className="rounded-[22px] p-4 app-card-strong">
+          <div className="rounded-[22px] p-4 app-surface-strong">
             <p className="text-xs font-bold uppercase tracking-[0.24em] app-muted">Saved entries</p>
             <p className="mt-2 text-3xl font-black app-title">{totalSavedCount}</p>
             <p className="mt-2 text-sm app-muted">Open the note browser modal to inspect playlist groups and individual saved notes with more room.</p>
           </div>
-          <button type="button" onClick={() => setShowBrowser(true)} className="w-full rounded-[22px] px-4 py-4 text-sm font-semibold app-card-strong">
+          <button type="button" onClick={() => setShowBrowser(true)} className="w-full rounded-[22px] px-4 py-4 text-sm font-semibold app-surface-strong">
             View saved notes list
           </button>
           {error ? <p className="text-sm font-medium app-title">{error}</p> : null}
@@ -288,8 +288,8 @@ const LibraryView = () => {
             chatEndRef={chatEndRef}
           />
         ) : (
-          <div className="flex min-h-[32rem] flex-col items-center justify-center rounded-[32px] border border-dashed px-8 text-center app-card" style={{ borderColor: 'var(--border)' }}>
-            <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full" style={{ background: 'color-mix(in srgb, var(--accent) 14%, white)', color: 'var(--accent)' }}>
+          <div className="app-empty-state flex min-h-[32rem] flex-col items-center justify-center px-8">
+            <div className="app-empty-state__icon mb-5">
               <FileStack className="h-8 w-8" />
             </div>
             <h3 className="text-2xl font-black app-title">Open a saved note</h3>

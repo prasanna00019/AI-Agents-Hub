@@ -28,6 +28,8 @@ const ProcessSection = ({
   const { config } = useConfig();
 
   const isProcessing = status === 'processing';
+  const capabilityBadges = ['Timestamp-aware notes', 'Playlist batches', 'Searchable library', 'Study assets'];
+
   const handleDrop = (event) => {
     event.preventDefault();
     const droppedFile = event.dataTransfer?.files?.[0];
@@ -39,25 +41,63 @@ const ProcessSection = ({
   return (
     <div className="grid gap-8 xl:grid-cols-[minmax(0,1.35fr)_380px]">
       <section className="space-y-8">
-        <div className="space-y-5 pt-8">
-          <div className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-[11px] font-bold uppercase tracking-[0.28em] shadow-sm app-pill">
-            <Sparkles className="h-3.5 w-3.5" />
-            Video to structured notes
+        <div className="app-hero rounded-[36px] p-6 sm:p-8 lg:p-10">
+          <div className="relative z-10 space-y-6">
+            <div className="app-kicker">
+              <Sparkles className="h-3.5 w-3.5" />
+              Video to structured notes
+            </div>
+
+            <div className="max-w-4xl space-y-5">
+              <h2 className="app-display max-w-4xl">
+                Turn videos, uploads, and playlists into notes you can search, save, and study.
+              </h2>
+              <p className="app-lead max-w-3xl">
+                Video2Notes supports local uploads, Google Drive shared videos, YouTube playlists, reusable transcript caching, and richer note outputs without giving up the current single-video workflow.
+              </p>
+            </div>
+
+            <div className="app-grid-metrics max-w-4xl">
+              <div className="app-metric">
+                <div className="app-metric__label">Input modes</div>
+                <div className="app-metric__value">URL, file, playlist</div>
+              </div>
+              <div className="app-metric">
+                <div className="app-metric__label">Output</div>
+                <div className="app-metric__value">Notes, assets, RAG</div>
+              </div>
+              <div className="app-metric">
+                <div className="app-metric__label">Storage</div>
+                <div className="app-metric__value">Cache + collections</div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {capabilityBadges.map((badge) => (
+                <span key={badge} className="app-chip">
+                  {badge}
+                </span>
+              ))}
+            </div>
           </div>
-          <h2 className="max-w-4xl text-5xl font-black tracking-tight app-title sm:text-6xl lg:text-7xl">
-            Turn videos, uploads, and playlists into notes you can search, save, and study.
-          </h2>
-          <p className="max-w-3xl text-lg leading-relaxed app-muted sm:text-xl">
-            Video2Notes now supports local uploads, Google Drive shared videos, YouTube playlists, reusable transcript caching, and richer note outputs without giving up the current single-video workflow.
-          </p>
         </div>
 
-        <div className="rounded-[32px] p-5 sm:p-8 app-card">
+        <div className="rounded-[36px] p-5 sm:p-8 app-card">
+          <div className="mb-5 flex items-center justify-between gap-4">
+            <div>
+              <p className="app-eyebrow">Generate</p>
+              <h3 className="mt-2 text-2xl font-black app-section-title">Choose your source</h3>
+            </div>
+            <div className="hidden rounded-full px-3 py-2 text-xs font-bold uppercase tracking-[0.26em] app-chip lg:inline-flex">
+              Live pipeline
+            </div>
+          </div>
+
           <div className="mb-5 grid gap-3 sm:grid-cols-2">
             <button
               type="button"
               onClick={() => setMode('url')}
-              className={`rounded-[24px] px-5 py-4 text-left transition-colors ${mode === 'url' ? 'app-primary-btn' : 'app-card-strong'}`}
+              className={`rounded-[28px] px-5 py-4 text-left transition-transform duration-300 hover:-translate-y-0.5 ${mode === 'url' ? 'app-primary-btn' : 'app-surface-strong'}`}
             >
               <div className="flex items-center gap-3">
                 <Youtube className="h-5 w-5" />
@@ -70,7 +110,7 @@ const ProcessSection = ({
             <button
               type="button"
               onClick={() => setMode('upload')}
-              className={`rounded-[24px] px-5 py-4 text-left transition-colors ${mode === 'upload' ? 'app-primary-btn' : 'app-card-strong'}`}
+              className={`rounded-[28px] px-5 py-4 text-left transition-transform duration-300 hover:-translate-y-0.5 ${mode === 'upload' ? 'app-primary-btn' : 'app-surface-strong'}`}
             >
               <div className="flex items-center gap-3">
                 <Upload className="h-5 w-5" />
@@ -85,8 +125,8 @@ const ProcessSection = ({
           <form onSubmit={onGenerate} className="space-y-6">
             {mode === 'url' ? (
               <label className="flex flex-col gap-3">
-                <span className="text-[11px] font-bold uppercase tracking-[0.28em] app-muted">Video URL or playlist</span>
-                <div className="flex items-center gap-3 rounded-[26px] px-5 py-4 shadow-sm transition-colors app-card-strong">
+                <span className="app-eyebrow">Video URL or playlist</span>
+                <div className="flex items-center gap-3 rounded-[28px] px-5 py-4 app-surface-strong">
                   <Youtube className="h-5 w-5 shrink-0" style={{ color: 'var(--accent-3)' }} />
                   <input
                     type="url"
@@ -101,13 +141,13 @@ const ProcessSection = ({
               </label>
             ) : (
               <div className="space-y-3">
-                <span className="text-[11px] font-bold uppercase tracking-[0.28em] app-muted">Upload a local file</span>
+                <span className="app-eyebrow">Upload a local file</span>
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={handleDrop}
-                  className="flex min-h-48 w-full flex-col items-center justify-center gap-4 rounded-[28px] border-2 border-dashed px-6 py-8 text-center transition-colors app-card-strong"
+                  className="flex min-h-52 w-full flex-col items-center justify-center gap-4 rounded-[30px] border-2 border-dashed px-6 py-8 text-center transition-transform duration-300 hover:-translate-y-0.5 app-surface-strong"
                   style={{ borderColor: 'color-mix(in srgb, var(--accent) 24%, var(--border))' }}
                 >
                   <div className="flex h-16 w-16 items-center justify-center rounded-full" style={{ background: 'color-mix(in srgb, var(--accent) 14%, white)', color: 'var(--accent)' }}>
@@ -136,7 +176,7 @@ const ProcessSection = ({
               </div>
             )}
 
-            <div className="flex flex-col gap-3 rounded-[26px] p-4 sm:flex-row sm:items-center sm:justify-between app-soft">
+            <div className="flex flex-col gap-3 rounded-[28px] p-4 sm:flex-row sm:items-center sm:justify-between app-soft">
               <div>
                 <p className="text-sm font-semibold app-title">Advanced runtime settings</p>
                 <p className="text-sm leading-relaxed app-muted">Whisper options, note style, custom prompt templates, provider keys, timestamps, and database connectivity live here.</p>
@@ -144,7 +184,7 @@ const ProcessSection = ({
               <button
                 type="button"
                 onClick={() => setShowSettings((value) => !value)}
-                className="inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold app-card-strong"
+                className="inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold app-surface-strong"
               >
                 <Settings2 className={`h-4 w-4 transition-transform ${showSettings ? 'rotate-90' : ''}`} />
                 {showSettings ? 'Hide settings' : 'Show settings'}
@@ -176,11 +216,11 @@ const ProcessSection = ({
         </div>
 
         {isProcessing ? (
-          <section className="rounded-[30px] p-6 app-card">
+          <section className="rounded-[32px] p-6 app-card">
             <div className="mb-6 flex items-center justify-between gap-4">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.28em]" style={{ color: 'var(--accent)' }}>Pipeline</p>
-                <h3 className="mt-2 text-2xl font-black app-title">{progress}</h3>
+                <p className="app-eyebrow" style={{ color: 'var(--accent)' }}>Pipeline</p>
+                <h3 className="mt-2 text-2xl font-black app-section-title">{progress}</h3>
               </div>
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl" style={{ background: 'color-mix(in srgb, var(--accent) 14%, white)', color: 'var(--accent)' }}>
                 <Play className="h-5 w-5 animate-pulse" />
@@ -192,8 +232,8 @@ const ProcessSection = ({
       </section>
 
       <aside className="space-y-4 pt-8">
-        <div className="rounded-[28px] p-6 app-card">
-          <p className="text-[11px] font-bold uppercase tracking-[0.28em] app-muted">What this app does</p>
+        <div className="rounded-[30px] p-6 app-card">
+          <p className="app-eyebrow">What this app does</p>
           <div className="mt-4 space-y-3 text-sm leading-relaxed app-muted">
             <p>Process one video, a local upload, or an entire playlist into structured markdown notes with timestamps, concepts, and action items.</p>
             <p>Choose note styles, add custom prompt instructions, and optionally generate study assets like flashcards, quiz questions, revision sheets, and glossary terms.</p>
@@ -201,7 +241,7 @@ const ProcessSection = ({
           </div>
         </div>
 
-        <div className="rounded-[28px] p-6 text-white" style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--accent) 78%, black), color-mix(in srgb, var(--accent-2) 72%, black))', boxShadow: 'var(--shadow)' }}>
+        <div className="rounded-[30px] p-6 text-white" style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--accent) 78%, black), color-mix(in srgb, var(--accent-2) 72%, black))', boxShadow: 'var(--shadow)' }}>
           <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-white/70">Workflow</p>
           <div className="mt-4 space-y-3 text-sm leading-relaxed text-white/90">
             <p>Use single-video mode for a focused note session or feed a playlist to queue a batch with per-video status and retry support.</p>
@@ -225,7 +265,7 @@ const ProcessSection = ({
               <button
                 type="button"
                 onClick={() => setSelectedVideoIds((playlistPreview?.entries || []).map((entry) => entry.id))}
-                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold app-card-strong"
+                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold app-surface-strong"
               >
                 <CheckSquare className="h-4 w-4" />
                 Select all
@@ -233,7 +273,7 @@ const ProcessSection = ({
               <button
                 type="button"
                 onClick={() => setSelectedVideoIds([])}
-                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold app-card-strong"
+                className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold app-surface-strong"
               >
                 <Square className="h-4 w-4" />
                 Clear
@@ -245,7 +285,7 @@ const ProcessSection = ({
             {(playlistPreview?.entries || []).map((entry, index) => {
               const checked = selectedVideoIds.includes(entry.id);
               return (
-                <label key={entry.id} className="flex items-center gap-4 rounded-[22px] px-4 py-4 app-card">
+                <label key={entry.id} className="flex items-center gap-4 rounded-[22px] px-4 py-4 app-surface">
                   <input
                     type="checkbox"
                     checked={checked}
@@ -259,7 +299,9 @@ const ProcessSection = ({
                     className="h-4 w-4"
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-bold app-title">{index + 1}. {entry.title}</p>
+                    <p className="truncate text-sm font-bold app-title">
+                      {index + 1}. {entry.title}
+                    </p>
                     <p className="mt-1 truncate text-xs app-muted">{entry.url}</p>
                   </div>
                 </label>
@@ -272,7 +314,7 @@ const ProcessSection = ({
               Selected {selectedVideoIds.length} of {(playlistPreview?.entries || []).length} videos.
             </p>
             <div className="flex flex-wrap gap-3">
-              <button type="button" onClick={() => onProcessPlaylist(true)} className="rounded-full px-4 py-3 text-sm font-semibold app-card-strong">
+              <button type="button" onClick={() => onProcessPlaylist(true)} className="rounded-full px-4 py-3 text-sm font-semibold app-surface-strong">
                 Process all
               </button>
               <button

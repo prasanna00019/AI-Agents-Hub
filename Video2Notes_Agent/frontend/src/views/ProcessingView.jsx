@@ -57,19 +57,35 @@ const ProcessingView = () => {
   }, [taskId, navigate, location.state?.url]);
 
   return (
-    <div className="mx-auto mt-12 max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <div className="mb-10 text-center">
-        <h2 className="mb-4 text-4xl font-black tracking-tight app-title">
-          {status === 'processing' ? 'Processing your video...' : 'Something went wrong'}
-        </h2>
-        <p className="text-lg leading-relaxed app-muted">
-          {status === 'processing' ? 'Live progress updates are streaming in as each stage completes.' : 'Analysis halted.'}
-        </p>
-      </div>
+    <div className="mx-auto mt-12 max-w-5xl animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <section className="app-hero rounded-[36px] p-6 sm:p-8 lg:p-10">
+        <div className="relative z-10 grid gap-8 lg:grid-cols-[minmax(0,1.1fr)_360px] lg:items-center">
+          <div className="space-y-5">
+            <div className="app-kicker">Live pipeline</div>
+            <h2 className="app-display text-[clamp(2.6rem,4vw,4.5rem)]">
+              {status === 'processing' ? 'Processing your video...' : 'Something went wrong'}
+            </h2>
+            <p className="app-lead max-w-2xl">
+              {status === 'processing' ? 'Live progress updates are streaming in as each stage completes.' : 'Analysis halted. The current run needs a retry or a clean restart.'}
+            </p>
+          </div>
 
-      <section className="rounded-[32px] p-8 app-card">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+            <div className="app-metric">
+              <div className="app-metric__label">Status</div>
+              <div className="app-metric__value">{status}</div>
+            </div>
+            <div className="app-metric">
+              <div className="app-metric__label">Current step</div>
+              <div className="app-metric__value">{progress}</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-[36px] p-6 sm:p-8 app-card">
         {status === 'error' ? (
-          <div className="space-y-6 py-6 text-center">
+          <div className="space-y-6 py-8 text-center">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full" style={{ background: 'color-mix(in srgb, var(--accent-3) 14%, white)' }}>
               <AlertCircle className="h-8 w-8" style={{ color: 'var(--accent-3)' }} />
             </div>
@@ -80,14 +96,14 @@ const ProcessingView = () => {
           </div>
         ) : (
           <div className="space-y-6">
-            <div className="mb-4 flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <span className="text-xs font-bold uppercase tracking-[0.28em] app-muted">Active pipeline</span>
               <div className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--accent)' }}>
                 <Loader2 className="h-4 w-4 animate-spin" />
                 {progress}
               </div>
             </div>
-            <div className="rounded-[28px] p-6 app-soft">
+            <div className="rounded-[32px] p-6 app-soft">
               <ProcessingSteps currentSteps={steps} />
             </div>
             <p className="text-center text-[11px] font-medium app-muted">

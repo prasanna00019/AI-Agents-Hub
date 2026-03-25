@@ -11,14 +11,14 @@ const ChatSection = ({
   chatEndRef,
 }) => {
   return (
-    <section className="lg:col-span-4 sticky top-24 flex h-[calc(100vh-8rem)] min-h-[30rem] flex-col overflow-hidden rounded-[30px] max-lg:h-[32rem] app-card">
+    <section className="lg:col-span-4 sticky top-24 flex h-[calc(100vh-8rem)] min-h-[30rem] flex-col overflow-hidden rounded-[34px] max-lg:h-[32rem] app-card">
       <header className="border-b px-6 py-5" style={{ borderColor: 'var(--border)' }}>
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl text-white" style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-2))' }}>
             <MessageSquare className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.24em] app-muted">RAG chat</p>
+            <p className="app-eyebrow">RAG chat</p>
             <h3 className="text-lg font-black app-title">Ask the saved note</h3>
           </div>
         </div>
@@ -40,7 +40,7 @@ const ChatSection = ({
           <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div
               className={`max-w-[88%] rounded-3xl p-4 text-sm leading-relaxed shadow-sm ${
-                msg.role === 'user' ? 'rounded-br-md app-primary-btn' : 'rounded-bl-md app-card-strong'
+                msg.role === 'user' ? 'rounded-br-md app-primary-btn' : 'rounded-bl-md app-surface-strong'
               }`}
             >
               {msg.role === 'assistant' ? <MarkdownRenderer content={msg.text} compact /> : <p>{msg.text}</p>}
@@ -63,7 +63,7 @@ const ChatSection = ({
         <form onSubmit={onSendMessage} className="relative">
           <input
             placeholder="Ask anything..."
-            className="w-full rounded-[24px] border py-4 pl-4 pr-14 text-sm font-medium outline-none transition-colors field-shell"
+            className="field-shell w-full rounded-[24px] py-4 pl-4 pr-14 text-sm font-medium outline-none transition-colors"
             value={currentQuestion}
             onChange={(event) => setCurrentQuestion(event.target.value)}
             disabled={isChatting}

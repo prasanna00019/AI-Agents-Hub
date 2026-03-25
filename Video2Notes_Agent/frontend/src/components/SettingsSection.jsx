@@ -17,14 +17,14 @@ const NOTE_STYLE_OPTIONS = [
 
 const Field = ({ label, helper, children }) => (
   <label className="flex flex-col gap-2">
-    <span className="text-[11px] font-bold uppercase tracking-[0.24em] app-muted">{label}</span>
+    <span className="app-eyebrow">{label}</span>
     {children}
     {helper ? <span className="text-xs leading-relaxed app-muted">{helper}</span> : null}
   </label>
 );
 
 const Toggle = ({ label, helper, checked, onChange, disabled }) => (
-  <label className="flex items-start gap-3 rounded-2xl px-4 py-3 shadow-sm transition-colors app-card-strong">
+  <label className="flex items-start gap-3 rounded-2xl px-4 py-3 shadow-sm transition-colors app-surface-strong">
     <input
       type="checkbox"
       checked={checked}
@@ -69,13 +69,13 @@ const SettingsSection = ({ disabled }) => {
 
   return (
     <div className="grid gap-6 xl:grid-cols-3">
-      <section className="rounded-[28px] p-6 app-card">
+      <section className="rounded-[32px] p-6 app-card">
         <div className="mb-5 flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl text-white" style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-2))' }}>
             <SlidersHorizontal className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.24em] app-muted">LLM and storage</p>
+            <p className="app-eyebrow">LLM and storage</p>
             <h3 className="text-lg font-black app-title">Runtime controls</h3>
           </div>
         </div>
@@ -128,13 +128,13 @@ const SettingsSection = ({ disabled }) => {
         </div>
       </section>
 
-      <section className="rounded-[28px] p-6 app-card">
+      <section className="rounded-[32px] p-6 app-card">
         <div className="mb-5 flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl text-white" style={{ background: 'linear-gradient(135deg, var(--accent-2), var(--accent-3))' }}>
             <Waves className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.24em] app-muted">Transcription and output</p>
+            <p className="app-eyebrow">Transcription and output</p>
             <h3 className="text-lg font-black app-title">Whisper and notes</h3>
           </div>
         </div>
@@ -198,13 +198,13 @@ const SettingsSection = ({ disabled }) => {
         </div>
       </section>
 
-      <section className="rounded-[28px] p-6 app-card">
+      <section className="rounded-[32px] p-6 app-card">
         <div className="mb-5 flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl text-white" style={{ background: 'linear-gradient(135deg, var(--accent-3), var(--accent))' }}>
             <Sparkles className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.24em] app-muted">Output style</p>
+            <p className="app-eyebrow">Output style</p>
             <h3 className="text-lg font-black app-title">Notes and prompts</h3>
           </div>
         </div>

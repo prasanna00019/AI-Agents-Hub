@@ -65,15 +65,30 @@ const ResultView = () => {
     if (!data) return null;
 
     return (
-        <NotesWorkspace
-            data={{ ...data, task_id: taskId, url: location.state?.url || data.url }}
-            messages={messages}
-            currentQuestion={currentQuestion}
-            setCurrentQuestion={setCurrentQuestion}
-            onSendMessage={handleSendMessage}
-            isChatting={isChatting}
-            chatEndRef={chatEndRef}
-        />
+            <div className="space-y-6">
+                <div className="app-hero rounded-[36px] p-6 sm:p-8">
+                    <div className="relative z-10 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                        <div className="space-y-3">
+                            <div className="app-kicker">Completed run</div>
+                            <h2 className="app-display text-[clamp(2.3rem,3vw,4rem)]">{data.video_title || 'Generated notes'}</h2>
+                            <p className="app-lead max-w-3xl">
+                                Review the note structure, export options, study assets, and grounded chat in one workspace.
+                            </p>
+                        </div>
+                        <div className="app-chip app-chip--solid w-fit">Task {taskId}</div>
+                    </div>
+                </div>
+
+                <NotesWorkspace
+                    data={{ ...data, task_id: taskId, url: location.state?.url || data.url }}
+                    messages={messages}
+                    currentQuestion={currentQuestion}
+                    setCurrentQuestion={setCurrentQuestion}
+                    onSendMessage={handleSendMessage}
+                    isChatting={isChatting}
+                    chatEndRef={chatEndRef}
+                />
+            </div>
     );
 };
 

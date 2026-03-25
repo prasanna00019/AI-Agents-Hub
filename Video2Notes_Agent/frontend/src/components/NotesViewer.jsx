@@ -4,7 +4,7 @@ import MarkdownRenderer from './MarkdownRenderer';
 import Modal from './Modal';
 
 const ExportToggle = ({ label, checked, onChange, disabled = false }) => (
-  <label className="flex items-center gap-3 rounded-2xl px-4 py-3 app-card-strong">
+  <label className="flex items-center gap-3 rounded-2xl px-4 py-3 app-surface-strong">
     <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4" />
     <span className="text-sm font-semibold app-title">{label}</span>
   </label>
@@ -115,7 +115,7 @@ const NotesViewer = ({
 
   return (
     <div className="lg:col-span-8 flex min-w-0 flex-col gap-6">
-      <section className="rounded-[30px] p-6 sm:p-8 app-card">
+      <section className="rounded-[34px] p-6 sm:p-8 app-card">
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
           <div className="min-w-0">
             <div className="mb-4 flex items-center gap-3">
@@ -123,7 +123,7 @@ const NotesViewer = ({
                 <FileText className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.28em] app-muted">Notes</p>
+                <p className="app-eyebrow">Notes</p>
                 <h2 className="mt-1 break-words text-3xl font-black app-title">{videoTitle}</h2>
               </div>
             </div>
@@ -150,7 +150,7 @@ const NotesViewer = ({
             ) : null}
           </div>
 
-          <div className="space-y-4 rounded-[24px] p-4 app-soft">
+          <div className="space-y-4 rounded-[28px] p-4 app-soft">
             <div className="flex items-center gap-2">
               <Settings2 className="h-4 w-4" style={{ color: 'var(--accent)' }} />
               <span className="text-xs font-bold uppercase tracking-[0.24em] app-muted">Export options</span>
@@ -194,7 +194,7 @@ const NotesViewer = ({
           </div>
         ) : null}
 
-        <div className="mt-6 rounded-[26px] p-5 sm:p-7 app-soft">
+        <div className="mt-6 rounded-[30px] p-5 sm:p-7 app-soft">
           <div className="mb-4 flex items-center gap-2">
             <Layers3 className="h-4 w-4" style={{ color: 'var(--accent)' }} />
             <span className="text-xs font-bold uppercase tracking-[0.24em] app-muted">Structured notes</span>

@@ -7,39 +7,39 @@ const Header = () => {
   const { theme, setTheme, themes } = useTheme();
 
   const navItemClass = ({ isActive }) => [
-    'inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors',
+    'app-nav-link',
     isActive
-      ? 'app-primary-btn'
-      : 'app-title hover:bg-white/70',
+      ? 'app-nav-link--active'
+      : '',
   ].join(' ');
 
   return (
     <nav
-      className="sticky top-0 z-50 border-b backdrop-blur-xl"
+      className="sticky top-0 z-50 border-b backdrop-blur-2xl"
       style={{ borderColor: 'var(--border)', background: 'var(--header)' }}
     >
-      <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
+      <div className="mx-auto flex max-w-[1720px] flex-col gap-3 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8 xl:px-10">
         <div className="flex items-center justify-between gap-4">
-          <NavLink to="/" className="flex items-center gap-3">
+          <NavLink to="/" className="group flex items-center gap-4">
             <div
-              className="flex h-11 w-11 items-center justify-center rounded-2xl shadow-[0_12px_32px_rgba(15,23,42,0.18)]"
+              className="flex h-12 w-12 items-center justify-center rounded-[1.15rem] shadow-[0_18px_38px_rgba(15,23,42,0.18)] transition-transform duration-300 group-hover:scale-105"
               style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-2))' }}
             >
               <Sparkles className="h-5 w-5 text-white" />
             </div>
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.32em]" style={{ color: 'var(--accent)' }}>Workspace</p>
-              <h1 className="text-lg font-black tracking-tight app-title">Video2Notes</h1>
+              <p className="text-[11px] font-bold uppercase tracking-[0.32em] app-muted">Workspace</p>
+              <h1 className="text-lg font-black tracking-tight app-title sm:text-xl">Video2Notes</h1>
             </div>
           </NavLink>
 
-          <div className="hidden rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.26em] lg:block app-pill">
+          <div className="hidden rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.26em] lg:block app-chip">
             Runtime controlled
           </div>
         </div>
 
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-end">
-          <div className="flex items-center gap-2 rounded-full p-1 app-card-strong">
+          <div className="flex items-center gap-2 rounded-full p-1 app-surface-strong">
             <NavLink to="/" className={navItemClass}>
               <Layers3 className="h-4 w-4" />
               Generate
@@ -50,7 +50,7 @@ const Header = () => {
             </NavLink>
           </div>
 
-          <label className="flex items-center gap-3 rounded-full px-4 py-2 app-card-strong">
+          <label className="flex items-center gap-3 rounded-full px-4 py-2 app-surface-strong">
             <Palette className="h-4 w-4" style={{ color: 'var(--accent)' }} />
             <select
               value={theme}

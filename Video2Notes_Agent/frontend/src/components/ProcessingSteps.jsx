@@ -14,13 +14,13 @@ const steps = [
 
 const ProcessingSteps = ({ currentSteps }) => {
   return (
-    <div className="relative flex flex-col gap-6 px-2">
+    <div className="relative flex flex-col gap-4 px-2 py-1">
       <div className="absolute bottom-4 left-[21px] top-4 w-px" style={{ background: 'linear-gradient(to bottom, color-mix(in srgb, var(--accent-2) 54%, transparent), color-mix(in srgb, var(--border) 80%, transparent), transparent)' }} />
 
       {steps.map((step) => {
         const status = currentSteps?.[step.id] || 'pending';
         return (
-          <div key={step.id} className="group relative flex items-center gap-6">
+          <div key={step.id} className="group relative flex items-center gap-5 rounded-[24px] border border-transparent px-3 py-3 transition-colors duration-300 hover:border-[color-mix(in_srgb,var(--border)_86%,white)] hover:bg-[color-mix(in_srgb,var(--card-strong)_92%,white)]">
             <div
               className={`relative z-10 flex h-7 w-7 items-center justify-center rounded-full transition-all duration-500 ${
                 status === 'completed'

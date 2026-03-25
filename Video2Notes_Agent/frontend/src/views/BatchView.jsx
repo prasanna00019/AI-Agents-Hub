@@ -6,9 +6,9 @@ import { ExternalLink, Loader2, RotateCcw } from 'lucide-react';
 const API_BASE = 'http://localhost:8000/api';
 
 const statusBadge = (status) => {
-  if (status === 'completed') return 'bg-emerald-100 text-emerald-800';
-  if (status === 'error') return 'bg-rose-100 text-rose-800';
-  return 'bg-slate-100 text-slate-700';
+  if (status === 'completed') return 'app-chip app-chip--solid';
+  if (status === 'error') return 'app-chip';
+  return 'app-chip';
 };
 
 const BatchView = () => {
@@ -51,8 +51,8 @@ const BatchView = () => {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[32px] p-8 app-card">
-        <p className="text-[11px] font-bold uppercase tracking-[0.28em] app-muted">Playlist batch</p>
+      <section className="rounded-[36px] p-8 app-card">
+        <p className="app-eyebrow">Playlist batch</p>
         <div className="mt-3 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-3xl font-black app-title">{batch.title || 'Playlist batch'}</h2>
@@ -64,20 +64,20 @@ const BatchView = () => {
         </div>
         {batch.applied_settings ? (
           <div className="mt-4 flex flex-wrap gap-2">
-            <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">{batch.applied_settings.note_style}</span>
-            <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">{batch.applied_settings.detail_level}</span>
-            <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">{batch.selected_video_ids?.length || batch.children?.length || 0} selected</span>
-            <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">
+            <span className="rounded-full px-3 py-1 text-xs font-semibold app-surface-strong">{batch.applied_settings.note_style}</span>
+            <span className="rounded-full px-3 py-1 text-xs font-semibold app-surface-strong">{batch.applied_settings.detail_level}</span>
+            <span className="rounded-full px-3 py-1 text-xs font-semibold app-surface-strong">{batch.selected_video_ids?.length || batch.children?.length || 0} selected</span>
+            <span className="rounded-full px-3 py-1 text-xs font-semibold app-surface-strong">
               {batch.playlist_processing_mode === 'sequential' ? 'one by one' : `parallel x${batch.playlist_worker_count || 1}`}
             </span>
-            <span className="rounded-full px-3 py-1 text-xs font-semibold app-card-strong">
+            <span className="rounded-full px-3 py-1 text-xs font-semibold app-surface-strong">
               {batch.applied_settings.generate_study_assets ? 'study assets on' : 'study assets off'}
             </span>
           </div>
         ) : null}
       </section>
 
-      <section className="rounded-[32px] p-6 app-card">
+      <section className="rounded-[36px] p-6 app-card">
         <div className="grid gap-4">
           {(batch.children || []).map((child) => (
             <article key={child.task_id} className="rounded-[24px] p-5 app-soft">
@@ -97,7 +97,7 @@ const BatchView = () => {
                     </button>
                   ) : null}
                   {child.status === 'error' ? (
-                    <button type="button" onClick={() => retryTask(child.task_id)} className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold app-card-strong">
+                    <button type="button" onClick={() => retryTask(child.task_id)} className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold app-surface-strong">
                       <RotateCcw className="h-4 w-4" />
                       Retry
                     </button>

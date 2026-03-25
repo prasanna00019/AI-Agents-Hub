@@ -163,6 +163,49 @@ body {
   margin: 0;
 }
 
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.28), transparent 82%);
+  opacity: 0.35;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: auto 0 0 0;
+  height: 240px;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.24));
+  mask-image: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.8));
+  opacity: 0.35;
+}
+
+@keyframes drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(0, -14px, 0) scale(1.03);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
 * {
   box-sizing: border-box;
   scrollbar-width: thin;
@@ -194,6 +237,7 @@ a {
   background: var(--card);
   box-shadow: var(--shadow);
   backdrop-filter: blur(16px);
+  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
 .app-card-strong {
@@ -201,6 +245,7 @@ a {
   background: var(--card-strong);
   box-shadow: var(--shadow);
   backdrop-filter: blur(16px);
+  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
 .app-soft {
@@ -241,20 +286,21 @@ a {
 .field-shell {
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: 18px;
-  background: var(--card-strong);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--card-strong) 92%, white);
   color: var(--ink);
-  min-height: 48px;
+  min-height: 52px;
   padding: 0.8rem 1rem;
   font-size: 0.95rem;
   line-height: 1.4;
   outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
 }
 
 .field-shell:focus {
   border-color: rgba(8, 145, 178, 0.55);
   box-shadow: 0 0 0 4px rgba(8, 145, 178, 0.12);
+  transform: translateY(-1px);
 }
 
 .field-shell::placeholder {
@@ -267,6 +313,263 @@ a {
 
 .scrollbar-surface > * {
   min-width: 0;
+}
+
+.app-shell {
+  position: relative;
+  isolation: isolate;
+}
+
+.app-surface {
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.app-surface-strong {
+  border: 1px solid var(--border);
+  background: var(--card-strong);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.app-surface-soft {
+  border: 1px solid var(--border);
+  background: var(--card-soft);
+}
+
+.app-hero {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--card-strong) 88%, white), color-mix(in srgb, var(--card) 94%, white)),
+    var(--card-strong);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(20px);
+}
+
+.app-hero::before {
+  content: '';
+  position: absolute;
+  inset: -20% auto auto -12%;
+  width: 18rem;
+  height: 18rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  filter: blur(24px);
+  animation: drift 11s ease-in-out infinite;
+}
+
+.app-hero::after {
+  content: '';
+  position: absolute;
+  right: -10%;
+  bottom: -30%;
+  width: 20rem;
+  height: 20rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-2) 18%, transparent);
+  filter: blur(34px);
+  animation: drift 15s ease-in-out infinite reverse;
+}
+
+.app-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, white);
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  padding: 0.55rem 0.85rem;
+}
+
+.app-eyebrow {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+.app-display {
+  color: var(--ink);
+  font-size: clamp(2.8rem, 4vw, 4.8rem);
+  line-height: 0.96;
+  letter-spacing: -0.05em;
+  font-weight: 950;
+}
+
+.app-lead {
+  color: var(--muted);
+  font-size: 1.03rem;
+  line-height: 1.8;
+}
+
+.app-grid-metrics {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.app-metric {
+  border-radius: 24px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card-strong) 94%, white);
+  padding: 1rem 1.1rem;
+}
+
+.app-metric__label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.app-metric__value {
+  color: var(--ink);
+  font-size: 1.35rem;
+  line-height: 1.1;
+  font-weight: 900;
+  margin-top: 0.5rem;
+}
+
+.app-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, white);
+  color: var(--ink);
+  padding: 0.4rem 0.8rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.app-chip--solid {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: var(--button-text);
+  border-color: transparent;
+}
+
+.app-panel-grid {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.app-panel-grid--tight {
+  gap: 0.9rem;
+}
+
+.app-section-title {
+  color: var(--ink);
+  letter-spacing: -0.04em;
+  font-weight: 900;
+  line-height: 1.04;
+}
+
+.app-section-subtitle {
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.app-soft-rail {
+  border-radius: 28px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card-soft) 92%, white);
+  padding: 1rem;
+}
+
+.app-focus-ring {
+  box-shadow: 0 0 0 4px rgba(8, 145, 178, 0.12);
+}
+
+.app-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  border-radius: 999px;
+  padding: 0.65rem 1rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 700;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.app-nav-link:hover {
+  background: color-mix(in srgb, var(--accent) 10%, white);
+  color: var(--ink);
+  transform: translateY(-1px);
+}
+
+.app-nav-link--active {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: var(--button-text);
+  box-shadow: 0 16px 36px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.app-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--border) 88%, white), transparent);
+}
+
+.app-empty-state {
+  border-radius: 32px;
+  border: 1px dashed color-mix(in srgb, var(--border) 90%, white);
+  background: color-mix(in srgb, var(--card-strong) 90%, white);
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+}
+
+.app-empty-state__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 4rem;
+  height: 4rem;
+  border-radius: 999px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, white);
+  box-shadow: 0 16px 28px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.app-data-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.app-fancy-border {
+  position: relative;
+}
+
+.app-fancy-border::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 38%, transparent), color-mix(in srgb, var(--accent-2) 28%, transparent), transparent);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.app-gradient-text {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2), var(--accent-3));
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 12s linear infinite;
 }
 
 .markdown-body {
