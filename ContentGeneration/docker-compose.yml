@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: pgvector/pgvector:pg17
+    image: postgres:17
     container_name: contentpilot-postgres
     restart: always
     ports:
@@ -11,7 +11,6 @@ services:
       POSTGRES_DB: CONTENT
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./init-scripts:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -41,7 +40,7 @@ services:
       searxng:
         condition: service_started
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/contentpilot
+      - DATABASE_URL=postgresql://postgres:radha@postgres:5432/CONTENT
       - SEARXNG_URL=http://searxng:8080
     volumes:
       - ./backend:/app

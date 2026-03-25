@@ -1,5 +1,3 @@
-import uuid
-from typing import Dict, Any, List
 from datetime import datetime
 from sqlalchemy import (
     Column,
@@ -9,13 +7,11 @@ from sqlalchemy import (
     JSON,
     Boolean,
     ForeignKey,
-    Integer,
     UniqueConstraint,
     Float,
 )
-from pgvector.sqlalchemy import Vector
 
-from src.backend.db.database import Base
+from db.database import Base
 
 
 class ChannelRecord(Base):
@@ -53,6 +49,8 @@ class ReviewItemRecord(Base):
     status = Column(String, nullable=False, default="draft")  # draft, ready
     content = Column(Text, nullable=False, default="")
     chat_history = Column(JSON, nullable=False, default=list)
+    generation_context = Column(Text, nullable=False, default="")
+    source_urls = Column(JSON, nullable=False, default=list)
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)
 
@@ -97,22 +95,16 @@ class MemoryRecord(Base):
     created_at = Column(DateTime, nullable=False)
 
 
-class EmbeddingRecord(Base):
-    """Persistent vector store backed by pgvector for incremental RAG ingestion."""
-    __tablename__ = "embeddings"
+class ReviewImageRecord(Base):
+    __tablename__ = "review_images"
     __table_args__ = (
-        UniqueConstraint("content_hash", name="uq_embedding_content_hash"),
+        UniqueConstraint("review_item_id", name="uq_review_image_item"),
     )
 
     id = Column(String, primary_key=True, index=True)
-    channel_id = Column(String, nullable=False, index=True)
-    content_hash = Column(String(64), nullable=False, index=True)  # MD5 of chunk content
-    chunk_text = Column(Text, nullable=False, default="")
-    parent_chunk_text = Column(Text, nullable=False, default="")  # the parent chunk for parent-child retrieval
-    source_url = Column(String, nullable=False, default="")
-    source_title = Column(String, nullable=False, default="")
-    kind = Column(String, nullable=False, default="scraped_page")  # scraped_page, search_result, provided_text
-    metadata_json = Column(JSON, nullable=False, default=dict)
-    embedding = Column(Vector(384))  # assuming all-MiniLM-L6-v2 dimensions
+    review_item_id = Column(String, ForeignKey("review_items.id"), nullable=False, index=True)
+    prompt = Column(Text, nullable=False, default="")
+    mime_type = Column(String, nullable=False, default="image/png")
+    file_path = Column(Text, nullable=False, default="")
     created_at = Column(DateTime, nullable=False)
-
+    updated_at = Column(DateTime, nullable=False)

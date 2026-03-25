@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.backend.api import api_router
-from src.backend.core.config import settings
-from src.backend.services.content_service import content_service
+from api import api_router
+from core.config import settings
+from services.content_service import content_service
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -11,12 +11,20 @@ app = FastAPI(
     version="0.1.0",
 )
 
+DEV_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-      "*"
-    ],
+    allow_origins=DEV_ORIGINS,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

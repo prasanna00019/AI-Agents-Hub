@@ -1,32 +1,24 @@
 """
-Content API — all REST endpoints for ContentPilot.
-
-Includes: settings, channels, source dumps, generation, review queue,
-SearXNG Docker control, memory, and SSE streaming.
+Content API routes for ContentPilot.
 """
 
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List, Optional
+import json
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from src.backend.services.content_service import content_service, get_run_queue, cleanup_run_queue
-from src.backend.services.docker_service import (
-    check_searxng_status,
-    start_searxng,
-    stop_searxng,
-)
-
-import json
+from services.content_service import content_service
+from services.docker_service import check_services_status, start_services, stop_services
+from services.image_service import ImageGenerationError
+from services.run_events import cleanup_run_queue, get_run_queue
 
 router = APIRouter(tags=["content"])
 
-
-# ── Pydantic models ──────────────────────────────────────────────────────
 
 class AppSettingsUpdate(BaseModel):
     database_url: Optional[str] = None
@@ -36,6 +28,7 @@ class AppSettingsUpdate(BaseModel):
     searxng_categories: Optional[str] = None
     searxng_max_results: Optional[int] = None
     searxng_time_range: Optional[str] = None
+    gemini_api_key: Optional[str] = None
 
 
 class ChannelCreateRequest(BaseModel):
@@ -77,6 +70,7 @@ class OverrideRequest(BaseModel):
     special_instructions: str = ""
     mode: str = "pre_generated"
     search_additional: bool = True
+    suggest_new_topic: bool = False
 
 
 class SourceDumpRequest(BaseModel):
@@ -90,6 +84,7 @@ class GenerateDayRequest(BaseModel):
     date: str
     model: Optional[str] = None
     search_additional: bool = True
+    suggest_new_topic: bool = False
 
 
 class GenerateWeekRequest(BaseModel):
@@ -108,11 +103,9 @@ class RefineItemRequest(BaseModel):
 
 
 class MemoryCreateRequest(BaseModel):
-    type: str = "contextual"  # contextual, episodic, preference
+    type: str = "contextual"
     content: str
 
-
-# ── Settings ──────────────────────────────────────────────────────────────
 
 @router.get("/settings")
 async def get_settings():
@@ -130,14 +123,10 @@ async def test_database_connection(database_url: Optional[str] = Query(default=N
     return content_service.test_database_url(target)
 
 
-# ── Ollama ────────────────────────────────────────────────────────────────
-
 @router.get("/ollama/models")
 async def list_ollama_models(base_url: Optional[str] = Query(default=None)):
     return await content_service.list_ollama_models(base_url)
 
-
-# ── Channels ──────────────────────────────────────────────────────────────
 
 @router.get("/channels")
 async def list_channels():
@@ -151,18 +140,18 @@ async def create_channel(payload: ChannelCreateRequest):
 
 @router.get("/channels/{channel_id}")
 async def get_channel(channel_id: str):
-    ch = content_service.get_channel(channel_id)
-    if not ch:
+    channel = content_service.get_channel(channel_id)
+    if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    return ch
+    return channel
 
 
 @router.put("/channels/{channel_id}")
 async def update_channel(channel_id: str, payload: ChannelUpdateRequest):
-    ch = content_service.update_channel(channel_id, payload.model_dump(exclude_none=True))
-    if not ch:
+    channel = content_service.update_channel(channel_id, payload.model_dump(exclude_none=True))
+    if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    return ch
+    return channel
 
 
 @router.delete("/channels/{channel_id}")
@@ -182,8 +171,6 @@ async def set_weekly_template(channel_id: str, payload: WeeklyTemplateRequest):
 async def set_channel_override(channel_id: str, payload: OverrideRequest):
     return content_service.set_override(channel_id, payload.date, payload.model_dump())
 
-
-# ── Source Dumps ──────────────────────────────────────────────────────────
 
 @router.post("/channels/{channel_id}/source-dumps")
 async def add_source_dump(channel_id: str, date: str, payload: SourceDumpRequest):
@@ -208,54 +195,49 @@ async def delete_source_dump(channel_id: str, dump_id: str):
     return {"ok": True}
 
 
-# ── Generation ────────────────────────────────────────────────────────────
-
 @router.post("/channels/{channel_id}/generate-day")
 async def generate_day(channel_id: str, payload: GenerateDayRequest):
-    """Async single-day generation that returns a run id for SSE streaming."""
     try:
         return await content_service.start_day_generation(
-            channel_id, payload.date, payload.model, payload.search_additional
+            channel_id,
+            payload.date,
+            payload.model,
+            payload.search_additional,
+            payload.suggest_new_topic,
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("/channels/{channel_id}/generate-week")
 async def generate_week(channel_id: str, payload: GenerateWeekRequest):
-    """Async week generation — returns immediately with run_id."""
     try:
         return await content_service.generate_week(channel_id, payload.start_date, payload.model)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/generation/status/{run_id}")
 async def get_generation_status(run_id: str):
-    """Poll the status of a generation run."""
     run = content_service.get_generation_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     return run
 
 
-# ── SSE Streaming ─────────────────────────────────────────────────────────
-
 @router.get("/generation/stream/{run_id}")
 async def stream_generation(run_id: str):
-    """Server-Sent Events stream for real-time generation progress."""
-
     async def event_generator():
-        q = get_run_queue(run_id)
+        queue = get_run_queue(run_id)
         try:
             while True:
                 try:
-                    event = await asyncio.wait_for(q.get(), timeout=300)
+                    event = await asyncio.wait_for(queue.get(), timeout=300)
                 except asyncio.TimeoutError:
                     yield f"data: {json.dumps({'step': 'timeout', 'status': 'done', 'message': 'Stream timed out'})}\n\n"
                     break
 
-                if event is None:  # End of stream signal
+                if event is None:
                     yield f"data: {json.dumps({'step': 'pipeline', 'status': 'done', 'message': 'Generation complete'})}\n\n"
                     break
 
@@ -273,8 +255,6 @@ async def stream_generation(run_id: str):
         },
     )
 
-
-# ── Review Queue ──────────────────────────────────────────────────────────
 
 @router.get("/review-queue")
 async def list_review_queue(channel_id: Optional[str] = Query(default=None)):
@@ -298,14 +278,39 @@ async def delete_review_item(item_id: str):
 async def refine_review_item(item_id: str, payload: RefineItemRequest):
     try:
         result = await content_service.refine_review_item(item_id, payload.instruction, payload.model)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     if not result:
         raise HTTPException(status_code=500, detail="Refinement failed")
     return result
 
 
-# ── Memory ────────────────────────────────────────────────────────────────
+@router.post("/review-queue/{item_id}/generate-image")
+async def generate_review_image(item_id: str):
+    try:
+        return content_service.generate_review_image(item_id)
+    except ImageGenerationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.get("/review-queue/{item_id}/image")
+async def get_review_image(item_id: str):
+    image = content_service.get_review_image(item_id)
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return image
+
+
+@router.get("/review-queue/{item_id}/image/download")
+async def download_review_image(item_id: str):
+    file_info = content_service.get_review_image_file(item_id)
+    if not file_info:
+        raise HTTPException(status_code=404, detail="Image file not found")
+    path, mime_type = file_info
+    return FileResponse(path, media_type=mime_type, filename=path.name)
+
 
 @router.get("/channels/{channel_id}/memory")
 async def list_channel_memory(channel_id: str, type: Optional[str] = Query(default=None)):
@@ -325,21 +330,21 @@ async def delete_channel_memory(channel_id: str, memory_id: str):
     return {"ok": True}
 
 
-# ── SearXNG Docker Control ───────────────────────────────────────────────
-
-@router.get("/searxng/status")
-async def searxng_status():
-    config = content_service.get_searxng_runtime_config()
-    return await check_searxng_status(config["url"])
+@router.get("/services/status")
+async def services_status():
+    settings_payload = content_service.get_settings()
+    return await check_services_status(settings_payload.get("searxng_url", ""))
 
 
-@router.post("/searxng/start")
-async def searxng_start():
-    config = content_service.get_searxng_runtime_config()
-    return await start_searxng(config["url"])
+@router.post("/services/start")
+async def services_start():
+    result = await start_services()
+    status = await check_services_status(content_service.get_settings().get("searxng_url", ""))
+    return {**result, **status}
 
 
-@router.post("/searxng/stop")
-async def searxng_stop():
-    config = content_service.get_searxng_runtime_config()
-    return await stop_searxng(config["url"])
+@router.post("/services/stop")
+async def services_stop():
+    result = await stop_services()
+    status = await check_services_status(content_service.get_settings().get("searxng_url", ""))
+    return {**result, **status}

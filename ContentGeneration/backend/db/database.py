@@ -3,7 +3,7 @@ from functools import lru_cache
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-from src.backend.core.config import settings
+from core.config import settings
 
 Base = declarative_base()
 

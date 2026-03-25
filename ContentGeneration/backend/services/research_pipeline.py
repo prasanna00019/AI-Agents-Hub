@@ -1,14 +1,9 @@
 """
-ContentPilot Research Pipeline — V3
-
-Handles web scraping (trafilatura), SearXNG search, parent-child chunking,
-hybrid retrieval (BM25 + Semantic), cross-encoder re-ranking, and
-multi-query support.
+ContentPilot research pipeline.
 """
 
 from __future__ import annotations
 
-import hashlib
 import re
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence
 from urllib.parse import urlparse
@@ -23,10 +18,6 @@ URL_PATTERN = re.compile(r"https?://[^\s<>()\"\\']+")
 
 LogCallback = Callable[[str, str], Awaitable[None]]
 
-
-# ---------------------------------------------------------------------------
-# URL helpers
-# ---------------------------------------------------------------------------
 
 def normalize_url(value: str) -> str:
     return value.strip().rstrip("/.,);]")
@@ -64,7 +55,6 @@ def _text_without_urls(value: str) -> str:
 
 
 def _smart_truncate(text: str, max_len: int = 18000) -> str:
-    """Truncate text at a paragraph boundary near max_len."""
     if len(text) <= max_len:
         return text
     cut_point = text.rfind("\n\n", 0, max_len)
@@ -110,12 +100,7 @@ def _format_document_for_context(document: Dict[str, Any]) -> str:
     return f"{header}\n{document.get('content', '').strip()}".strip()
 
 
-# ---------------------------------------------------------------------------
-# Web scraping — trafilatura-based
-# ---------------------------------------------------------------------------
-
 async def scrape_url(url: str, client: httpx.AsyncClient) -> Dict[str, Any]:
-    """Scrape a URL using trafilatura for clean content extraction."""
     try:
         response = await client.get(url, follow_redirects=True)
         response.raise_for_status()
@@ -130,22 +115,12 @@ async def scrape_url(url: str, client: httpx.AsyncClient) -> Dict[str, Any]:
             include_links=True,
             output_format="txt",
         )
-
-        # Extract metadata (title, date, author, sitename)
         metadata = trafilatura.extract_metadata(raw_html)
-        title = ""
-        date_published = ""
-        author = ""
-        sitename = ""
 
-        if metadata:
-            title = metadata.title or ""
-            date_published = str(metadata.date) if metadata.date else ""
-            author = metadata.author or ""
-            sitename = metadata.sitename or ""
-
-        if not title:
-            title = urlparse(str(response.url)).netloc
+        title = metadata.title if metadata and metadata.title else urlparse(str(response.url)).netloc
+        date_published = str(metadata.date) if metadata and metadata.date else ""
+        author = metadata.author if metadata and metadata.author else ""
+        sitename = metadata.sitename if metadata and metadata.sitename else ""
 
         if not content:
             raise ValueError("No readable content found on the page.")
@@ -169,10 +144,6 @@ async def scrape_url(url: str, client: httpx.AsyncClient) -> Dict[str, Any]:
         }
 
 
-# ---------------------------------------------------------------------------
-# SearXNG search
-# ---------------------------------------------------------------------------
-
 async def search_searxng(
     searx_url: str,
     query: str,
@@ -190,10 +161,7 @@ async def search_searxng(
         params["time_range"] = time_range
 
     async with httpx.AsyncClient(timeout=12.0, headers={"User-Agent": USER_AGENT}) as client:
-        response = await client.get(
-            f"{searx_url.rstrip('/')}/search",
-            params=params,
-        )
+        response = await client.get(f"{searx_url.rstrip('/')}/search", params=params)
         response.raise_for_status()
         payload = response.json()
 
@@ -208,10 +176,6 @@ async def search_searxng(
         )
     return results
 
-
-# ---------------------------------------------------------------------------
-# Research material collector
-# ---------------------------------------------------------------------------
 
 async def collect_research_material(
     *,
@@ -232,7 +196,6 @@ async def collect_research_material(
         source = (raw_source or "").strip()
         if not source:
             continue
-
         if is_url(source):
             provided_urls.append(normalize_url(source))
             continue
@@ -259,13 +222,14 @@ async def collect_research_material(
     search_results: List[Dict[str, Any]] = []
     search_urls: List[str] = []
     new_search_urls: List[str] = []
-    should_search = (mode != "source_dump") and search_additional and searx_url.strip() and topic.strip()
+    should_search = mode != "source_dump" and search_additional and searx_url.strip() and topic.strip()
     if should_search:
         if log_cb:
             await log_cb("running", f"Searching SearXNG for: {topic}")
         try:
             search_results = await search_searxng(
-                searx_url, topic,
+                searx_url,
+                topic,
                 limit=searxng_max_results,
                 categories=searxng_categories or None,
                 time_range=searxng_time_range or None,
@@ -286,22 +250,11 @@ async def collect_research_material(
                     if url and url not in provided_url_set:
                         new_search_urls.append(url)
             if log_cb:
-                filtered_urls = [u for u in new_search_urls if u]
-                await log_cb(
-                    "running",
-                    f"SearXNG returned {len(search_results)} result(s): "
-                    f"{', '.join(r['url'] for r in search_results if r.get('url'))}",
-                )
-                if filtered_urls:
-                    await log_cb(
-                        "running",
-                        f"Filtered to {len(filtered_urls)} new URL(s) (excluding provided sources).",
-                    )
+                await log_cb("running", f"SearXNG returned {len(search_results)} result(s).")
         except Exception as exc:
             if log_cb:
                 await log_cb("warning", f"SearXNG search failed: {exc}")
 
-    # Candidate scrape list
     candidate_urls = _dedupe_strings([*provided_urls, *new_search_urls])[:10]
     if candidate_urls:
         async with httpx.AsyncClient(
@@ -331,29 +284,27 @@ async def collect_research_material(
                     await log_cb("warning", f"Failed to scrape {scraped['url']}: {scraped.get('error', 'Unknown error')}")
 
     combined_text = "\n\n---\n\n".join(
-        _format_document_for_context(doc)
-        for doc in documents if doc.get("content")
+        _format_document_for_context(document)
+        for document in documents
+        if document.get("content")
     )
     return {
-        "documents": [doc for doc in documents if doc.get("content")],
+        "documents": [document for document in documents if document.get("content")],
         "combined_text": combined_text,
         "search_results": search_results,
         "provided_urls": provided_urls,
         "search_urls": _dedupe_strings(search_urls),
         "new_search_urls": _dedupe_strings(new_search_urls),
         "scraped_urls": [
-            doc.get("url", "") for doc in documents
-            if doc.get("kind") == "scraped_page" and doc.get("url")
+            document.get("url", "")
+            for document in documents
+            if document.get("kind") == "scraped_page" and document.get("url")
         ],
     }
 
 
-# ---------------------------------------------------------------------------
-# RAG context builder — Parent-Child Chunking + Re-ranking + Multi-query
-# ---------------------------------------------------------------------------
-
 def _content_hash(text: str) -> str:
-    return hashlib.md5(text.encode("utf-8")).hexdigest()
+    return str(hash(text))
 
 
 async def build_rag_context(
@@ -361,19 +312,8 @@ async def build_rag_context(
     documents: Sequence[Dict[str, Any]],
     queries: List[str],
     max_final_chunks: int = 6,
-    embedding_service: Optional[Any] = None,
-    channel_id: str = "",
 ) -> Dict[str, Any]:
-    """Build RAG context using parent-child chunking, hybrid retrieval, and re-ranking.
-
-    Args:
-        documents: List of document dicts with 'content', 'title', 'url', etc.
-        queries: List of query strings (from query expansion). At least one required.
-        max_final_chunks: Number of final parent chunks to return after re-ranking.
-        embedding_service: Service to persist chunks to pgvector.
-        channel_id: The ID of the channel for persistent embeddings.
-    """
-    cleaned_documents = [doc for doc in documents if doc.get("content")]
+    cleaned_documents = [document for document in documents if document.get("content")]
     if not cleaned_documents:
         return {
             "context": "",
@@ -395,25 +335,22 @@ async def build_rag_context(
         from langchain_core.documents import Document
         from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-        # Build LangChain Document objects
         source_documents = [
             Document(
-                page_content=_format_document_for_context(doc),
+                page_content=_format_document_for_context(document),
                 metadata={
-                    "title": doc.get("title", ""),
-                    "url": doc.get("url", ""),
-                    "kind": doc.get("kind", ""),
-                    "date_published": doc.get("date_published", ""),
-                    "author": doc.get("author", ""),
+                    "title": document.get("title", ""),
+                    "url": document.get("url", ""),
+                    "kind": document.get("kind", ""),
+                    "date_published": document.get("date_published", ""),
+                    "author": document.get("author", ""),
                 },
             )
-            for doc in cleaned_documents
+            for document in cleaned_documents
         ]
 
-        # ── Parent-Child Chunking ──
         parent_splitter = RecursiveCharacterTextSplitter(chunk_size=1600, chunk_overlap=200)
         child_splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=80)
-
         parent_chunks = parent_splitter.split_documents(source_documents)
         if not parent_chunks:
             return {
@@ -427,128 +364,70 @@ async def build_rag_context(
                 "reranked": False,
             }
 
-        # Build child chunks and map them back to parents
         child_to_parent: Dict[str, Document] = {}
         all_child_chunks: List[Document] = []
-
-        for parent_idx, parent_doc in enumerate(parent_chunks):
+        for parent_index, parent_doc in enumerate(parent_chunks):
             children = child_splitter.split_documents([parent_doc])
             for child_doc in children:
-                child_doc.metadata["parent_idx"] = parent_idx
+                child_doc.metadata["parent_idx"] = parent_index
                 child_to_parent[_content_hash(child_doc.page_content)] = parent_doc
                 all_child_chunks.append(child_doc)
 
         if not all_child_chunks:
             all_child_chunks = parent_chunks
-            for doc in all_child_chunks:
-                child_to_parent[_content_hash(doc.page_content)] = doc
+            for document in all_child_chunks:
+                child_to_parent[_content_hash(document.page_content)] = document
 
-        # ── Compute Embeddings & Store Chunks persistently to pgvector ──
         embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-        if embedding_service and channel_id:
-            try:
-                texts_to_embed = [child_doc.page_content for child_doc in all_child_chunks]
-                vectors = embeddings.embed_documents(texts_to_embed)
-            except Exception as e:
-                print(f"[pgvector] Failed to compute embeddings: {e}")
-                vectors = [None] * len(all_child_chunks)
-
-            chunks_to_store = []
-            for child_doc, vector in zip(all_child_chunks, vectors):
-                parent_doc = child_to_parent.get(_content_hash(child_doc.page_content)) or child_doc
-                chunks_to_store.append({
-                    "chunk_text": child_doc.page_content,
-                    "parent_chunk_text": parent_doc.page_content,
-                    "source_url": str(child_doc.metadata.get("url", ""))[:250],
-                    "source_title": str(child_doc.metadata.get("title", ""))[:250],
-                    "kind": child_doc.metadata.get("kind", "scraped_page"),
-                    "metadata": {
-                        "date_published": child_doc.metadata.get("date_published", ""),
-                        "author": child_doc.metadata.get("author", ""),
-                    },
-                    "embedding": vector
-                })
-            try:
-                print(f"[pgvector] Attempting to store {len(chunks_to_store)} chunks for channel {channel_id}")
-                result = embedding_service.store_chunks(channel_id, chunks_to_store)
-                print(f"[pgvector] ✅ Store result: {result}")
-            except Exception as e:
-                print(f"[pgvector] ❌ Failed to store chunks: {type(e).__name__}: {e}")
-
-        # ── Hybrid Retrieval on child chunks ──
         fetch_k = min(max(len(all_child_chunks), 30), 50)
         vectorstore = Chroma.from_documents(documents=all_child_chunks, embedding=embeddings)
         semantic_retriever = vectorstore.as_retriever(
             search_type="mmr",
-            search_kwargs={
-                "k": fetch_k,
-                "fetch_k": min(len(all_child_chunks), fetch_k * 2),
-            },
+            search_kwargs={"k": fetch_k, "fetch_k": min(len(all_child_chunks), fetch_k * 2)},
         )
 
         bm25_retriever = BM25Retriever.from_documents(all_child_chunks)
         bm25_retriever.k = fetch_k
 
-        # ── Multi-query retrieval with Reciprocal Rank Fusion (Ensemble) ──
-        # Instead of the brittle langchain EnsembleRetriever, we use native RRF.
         doc_scores: Dict[str, float] = {}
         doc_map: Dict[str, Document] = {}
-
-        for q in queries:
+        for query in queries:
             try:
-                sem_docs = semantic_retriever.invoke(q)
-                bm25_docs = bm25_retriever.invoke(q)
-
+                sem_docs = semantic_retriever.invoke(query)
+                bm25_docs = bm25_retriever.invoke(query)
                 for rank, doc in enumerate(sem_docs):
-                    h = _content_hash(doc.page_content)
-                    doc_scores[h] = doc_scores.get(h, 0.0) + 1.0 / (60 + rank)
-                    doc_map[h] = doc
-
+                    key = _content_hash(doc.page_content)
+                    doc_scores[key] = doc_scores.get(key, 0.0) + 1.0 / (60 + rank)
+                    doc_map[key] = doc
                 for rank, doc in enumerate(bm25_docs):
-                    h = _content_hash(doc.page_content)
-                    # Downweight BM25 slightly by multiplying its RRF score by 0.5
-                    doc_scores[h] = doc_scores.get(h, 0.0) + (1.0 / (60 + rank)) * 0.5
-                    doc_map[h] = doc
-            except Exception as e:
-                print(f"[RAG] Warning: Retrieval for query '{q}' failed: {e}")
+                    key = _content_hash(doc.page_content)
+                    doc_scores[key] = doc_scores.get(key, 0.0) + (1.0 / (60 + rank)) * 0.5
+                    doc_map[key] = doc
+            except Exception as exc:
+                print(f"[RAG] Warning: retrieval for query '{query}' failed: {exc}")
 
-        # Sort by RRF score
-        all_retrieved = [
-            doc_map[h] for h, score in sorted(doc_scores.items(), key=lambda x: x[1], reverse=True)
-        ]
-
+        all_retrieved = [doc_map[key] for key, _ in sorted(doc_scores.items(), key=lambda item: item[1], reverse=True)]
         if not all_retrieved:
-            all_retrieved = all_child_chunks[:max_final_chunks * 2]
+            all_retrieved = all_child_chunks[: max_final_chunks * 2]
 
-        # ── Cross-Encoder Re-Ranking ──
         reranked = False
         try:
             from sentence_transformers import CrossEncoder
 
-            # Use sentence-transformers directly to avoid missing langchain wrappers
             model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
-            pairs = [[primary_query, doc.page_content] for doc in all_retrieved]
-            
-            # Predict scores for each (query, chunk) pair
-            scores = model.predict(pairs)
-            
-            # Combine docs with scores and sort
-            scored_docs = list(zip(all_retrieved, scores))  # type: ignore
-            scored_docs.sort(key=lambda x: x[1], reverse=True)
-            
-            all_retrieved = [doc for doc, score in scored_docs][:max_final_chunks * 2]
+            scores = model.predict([[primary_query, doc.page_content] for doc in all_retrieved])
+            scored = list(zip(all_retrieved, scores))
+            scored.sort(key=lambda item: item[1], reverse=True)
+            all_retrieved = [doc for doc, _ in scored][: max_final_chunks * 2]
             reranked = True
-        except Exception as e:
-            print(f"[RAG] Warning: Cross-Encoder reranking failed: {e}")
-            all_retrieved = all_retrieved[:max_final_chunks * 2]
+        except Exception as exc:
+            print(f"[RAG] Warning: Cross-Encoder reranking failed: {exc}")
+            all_retrieved = all_retrieved[: max_final_chunks * 2]
 
-        # ── Map child chunks → parent chunks (deduplicated) ──
         selected_parents: List[Document] = []
         seen_parent_hashes: set[str] = set()
-
         for child_doc in all_retrieved:
-            child_hash = _content_hash(child_doc.page_content)
-            parent_doc = child_to_parent.get(child_hash, child_doc)
+            parent_doc = child_to_parent.get(_content_hash(child_doc.page_content), child_doc)
             parent_hash = _content_hash(parent_doc.page_content)
             if parent_hash not in seen_parent_hashes:
                 seen_parent_hashes.add(parent_hash)
@@ -556,18 +435,15 @@ async def build_rag_context(
             if len(selected_parents) >= max_final_chunks:
                 break
 
-        retrieval_mode = "parent_child_hybrid_reranked" if reranked else "parent_child_hybrid"
-
         try:
             vectorstore.delete_collection()
         except Exception:
             pass
 
         selected = selected_parents
-
+        retrieval_mode = "parent_child_hybrid_reranked" if reranked else "parent_child_hybrid"
     except Exception as outer_err:
-        print(f"[RAG] ❌ Primary retrieval pipeline failed: {type(outer_err).__name__}: {outer_err}")
-        # Fallback: BM25-only retrieval (no parent-child, no re-ranking)
+        print(f"[RAG] Primary retrieval pipeline failed: {type(outer_err).__name__}: {outer_err}")
         try:
             from langchain_community.retrievers import BM25Retriever
             from langchain_core.documents import Document
@@ -575,57 +451,41 @@ async def build_rag_context(
 
             source_documents = [
                 Document(
-                    page_content=_format_document_for_context(doc),
+                    page_content=_format_document_for_context(document),
                     metadata={
-                        "title": doc.get("title", ""),
-                        "url": doc.get("url", ""),
-                        "kind": doc.get("kind", ""),
+                        "title": document.get("title", ""),
+                        "url": document.get("url", ""),
+                        "kind": document.get("kind", ""),
                     },
                 )
-                for doc in cleaned_documents
+                for document in cleaned_documents
             ]
             splitter = RecursiveCharacterTextSplitter(chunk_size=900, chunk_overlap=180)
             splits = splitter.split_documents(source_documents)
-
             bm25_retriever = BM25Retriever.from_documents(splits)
             bm25_retriever.k = max_final_chunks
             selected = bm25_retriever.invoke(primary_query)
-            retrieval_mode = "bm25_fallback"
             all_child_chunks = splits
             parent_chunks = splits
+            retrieval_mode = "bm25_fallback"
             reranked = False
         except Exception:
-            # Ultimate fallback: simple keyword scoring
-            from dataclasses import dataclass
+            selected = []
+            for document in cleaned_documents[:max_final_chunks]:
+                from types import SimpleNamespace
 
-            @dataclass
-            class _FallbackDocument:
-                page_content: str
-                metadata: Dict[str, Any]
-
-            base_docs = [
-                _FallbackDocument(
-                    page_content=_format_document_for_context(doc),
-                    metadata={
-                        "title": doc.get("title", ""),
-                        "url": doc.get("url", ""),
-                        "kind": doc.get("kind", ""),
-                    },
+                selected.append(
+                    SimpleNamespace(
+                        page_content=_format_document_for_context(document),
+                        metadata={
+                            "title": document.get("title", ""),
+                            "url": document.get("url", ""),
+                            "kind": document.get("kind", ""),
+                        },
+                    )
                 )
-                for doc in cleaned_documents
-            ]
-            terms = {t for t in re.findall(r"[a-zA-Z0-9]{3,}", primary_query.lower())}
-            if terms:
-                scored = sorted(
-                    base_docs,
-                    key=lambda d: sum(d.page_content.lower().count(t) for t in terms),
-                    reverse=True,
-                )
-                selected = scored[:max_final_chunks]
-            else:
-                selected = base_docs[:max_final_chunks]
-            all_child_chunks = base_docs
-            parent_chunks = base_docs
+            all_child_chunks = selected
+            parent_chunks = selected
             retrieval_mode = "keyword_fallback"
             reranked = False
 
@@ -645,10 +505,10 @@ async def build_rag_context(
     return {
         "context": "\n\n---\n\n".join(context_parts),
         "retrieval_mode": retrieval_mode,
-        "selected_sources": [s for s in selected_sources if s],
+        "selected_sources": [source for source in selected_sources if source],
         "document_count": len(cleaned_documents),
-        "chunk_count": len(all_child_chunks) if 'all_child_chunks' in dir() else 0,
-        "parent_chunk_count": len(parent_chunks) if 'parent_chunks' in dir() else 0,
-        "child_chunk_count": len(all_child_chunks) if 'all_child_chunks' in dir() else 0,
-        "reranked": reranked if 'reranked' in dir() else False,
+        "chunk_count": len(all_child_chunks),
+        "parent_chunk_count": len(parent_chunks),
+        "child_chunk_count": len(all_child_chunks),
+        "reranked": reranked,
     }

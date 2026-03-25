@@ -33,6 +33,7 @@ const EMPTY_SETTINGS = {
   searxng_categories: 'general',
   searxng_max_results: 4,
   searxng_time_range: 'any',
+  gemini_api_key: '',
 }
 
 const normalizeUrlInput = (value) => value.trim().replace(/\/+$/, '')
@@ -227,7 +228,7 @@ function App() {
 
   const [channelForm, setChannelForm] = useState(CHANNEL_INIT)
   const [weeklyTemplateDraft, setWeeklyTemplateDraft] = useState({ ...DEFAULT_TEMPLATE })
-  const [overrideForm, setOverrideForm] = useState({ date: '', pillar: '', topic: '', special_instructions: '', mode: 'pre_generated', search_additional: true })
+  const [overrideForm, setOverrideForm] = useState({ date: '', pillar: '', topic: '', special_instructions: '', mode: 'pre_generated', search_additional: true, suggest_new_topic: false })
   const [sourceDumps, setSourceDumps] = useState([])
   const [newSourceDump, setNewSourceDump] = useState({ type: 'url', label: '', raw_content: '' })
 
@@ -241,7 +242,13 @@ function App() {
   // Source dump counts for calendar
   const [sourceDumpCounts, setSourceDumpCounts] = useState({})
   const [isMobileOpen, setMobileOpen] = useState(false)
-  const [searxngStatus, setSearxngStatus] = useState({ running: false, configured: false, controllable: false, url: '', port: null })
+  const [servicesStatus, setServicesStatus] = useState({
+    running: false,
+    docker_running: false,
+    searxng_url: '',
+    postgres: { running: false, status: 'missing' },
+    searxng: { running: false, status: 'missing', url: '' },
+  })
 
   // Loading states
   const [generating, setGenerating] = useState(false)
@@ -251,10 +258,12 @@ function App() {
   const [savingSettings, setSavingSettings] = useState(false)
   const [creatingChannel, setCreatingChannel] = useState(false)
   const [agentLogs, setAgentLogs] = useState([])
-  const [togglingSearxng, setTogglingSearxng] = useState(false)
+  const [togglingServices, setTogglingServices] = useState(false)
   const [testingDb, setTestingDb] = useState(false)
   const [refiningId, setRefiningId] = useState(null)
   const [generatingDay, setGeneratingDay] = useState(false)
+  const [reviewImages, setReviewImages] = useState({})
+  const [generatingImageId, setGeneratingImageId] = useState(null)
 
   // Calendar day detail modal (separate from override modal)
   const [dayDetailDate, setDayDetailDate] = useState('')
@@ -344,8 +353,8 @@ function App() {
     finally { setLoadingReview(false) }
   }, [callApi])
 
-  const loadSearxngStatus = useCallback(async () => {
-    try { const d = await callApi('/api/v1/searxng/status'); setSearxngStatus(d) } catch { }
+  const loadServicesStatus = useCallback(async () => {
+    try { const d = await callApi('/api/v1/services/status'); setServicesStatus(d) } catch { }
   }, [callApi])
 
   useEffect(() => {
@@ -370,12 +379,12 @@ function App() {
       
       if (mounted) {
         loadChannels()
-        loadSearxngStatus()
+        loadServicesStatus()
       }
     }
     boot()
     return () => { mounted = false }
-  }, [loadHealth, loadSettings, loadModels, loadChannels, loadSearxngStatus, feedback]) // eslint-disable-line
+  }, [loadHealth, loadSettings, loadModels, loadChannels, loadServicesStatus, feedback]) // eslint-disable-line
 
   useEffect(() => { loadReviewQueue(selectedChannelId).catch(e => feedback(e.message, 'error')) }, [selectedChannelId]) // eslint-disable-line
 
@@ -400,6 +409,7 @@ function App() {
         ollama_base_url: normalizeUrlInput(settings.ollama_base_url || ''),
         default_ollama_model: settings.default_ollama_model.trim(),
         searxng_url: normalizeUrlInput(settings.searxng_url || ''),
+        gemini_api_key: settings.gemini_api_key === 'configured' ? undefined : settings.gemini_api_key,
       }
       const savedSettings = await callApi('/api/v1/settings', { method: 'PUT', body: JSON.stringify(payload) })
       setSettings({ ...EMPTY_SETTINGS, ...savedSettings })
@@ -411,7 +421,7 @@ function App() {
       } else {
         setModels([])
       }
-      await loadSearxngStatus()
+      await loadServicesStatus()
       feedback('Settings saved', 'success')
     } catch (e) { feedback(e.message, 'error') }
     finally { setSavingSettings(false) }
@@ -600,6 +610,7 @@ function App() {
           date: targetDate,
           model: generateModel || settings.default_ollama_model,
           search_additional: overrideForm.search_additional !== false,
+          suggest_new_topic: overrideForm.suggest_new_topic === true,
         }),
       })
 
@@ -681,26 +692,58 @@ function App() {
     finally { setRefiningId(null) }
   }
 
+  const loadReviewImage = useCallback(async (itemId) => {
+    try {
+      const data = await callApi(`/api/v1/review-queue/${itemId}/image`)
+      setReviewImages(prev => ({ ...prev, [itemId]: data }))
+    } catch {
+      setReviewImages(prev => {
+        const next = { ...prev }
+        delete next[itemId]
+        return next
+      })
+    }
+  }, [callApi])
+
+  useEffect(() => {
+    reviewQueue.forEach(item => {
+      loadReviewImage(item.id)
+    })
+  }, [reviewQueue, loadReviewImage])
+
+  const generateReviewImage = async (itemId) => {
+    setGeneratingImageId(itemId)
+    try {
+      const data = await callApi(`/api/v1/review-queue/${itemId}/generate-image`, { method: 'POST' })
+      setReviewImages(prev => ({ ...prev, [itemId]: data }))
+      feedback('Image generated', 'success')
+    } catch (e) {
+      feedback(e.message, 'error')
+    } finally {
+      setGeneratingImageId(null)
+    }
+  }
+
   const copyContent = async (content) => { await navigator.clipboard.writeText(content); feedback('Copied to clipboard', 'success') }
 
-  const toggleSearxng = async () => {
-    const savedSearxngUrl = normalizeUrlInput(searxngStatus.url || '')
+  const toggleServices = async () => {
+    const savedSearxngUrl = normalizeUrlInput(servicesStatus.searxng_url || '')
     const currentSearxngUrl = normalizeUrlInput(settings.searxng_url || '')
     if (savedSearxngUrl !== currentSearxngUrl) {
-      feedback('Save Settings before changing the SearXNG container state', 'error')
+      feedback('Save Settings before changing the Docker service state', 'error')
       return
     }
 
-    setTogglingSearxng(true)
+    setTogglingServices(true)
     try {
-      const path = searxngStatus.running ? '/api/v1/searxng/stop' : '/api/v1/searxng/start'
+      const path = servicesStatus.running ? '/api/v1/services/stop' : '/api/v1/services/start'
       const r = await callApi(path, { method: 'POST' })
       feedback(r.message, r.ok ? 'success' : 'error')
-      await loadSearxngStatus()
+      await loadServicesStatus()
     } catch (e) { 
       feedback(e.message, 'error') 
     } finally {
-      setTogglingSearxng(false)
+      setTogglingServices(false)
     }
   }
 
@@ -732,6 +775,7 @@ function App() {
         special_instructions: dayData.special_instructions || '',
         mode: dayData.mode || 'pre_generated',
         search_additional: dayData.search_additional !== false,
+        suggest_new_topic: dayData.suggest_new_topic === true,
       })
     }
   }
@@ -745,17 +789,14 @@ function App() {
     baseUrl: settings.ollama_base_url,
     defaultModel: settings.default_ollama_model,
   })
-  const savedSearxngUrl = normalizeUrlInput(searxngStatus.url || '')
+  const savedSearxngUrl = normalizeUrlInput(servicesStatus.searxng_url || '')
   const currentSearxngUrl = normalizeUrlInput(settings.searxng_url || '')
-  const searxngSettingsDirty = savedSearxngUrl !== currentSearxngUrl
-  const canToggleSearxng = Boolean(searxngStatus.controllable) && !searxngSettingsDirty
-  const searxngStatusText = !searxngStatus.configured
-    ? 'Save a SearXNG URL first.'
-    : !searxngStatus.controllable
-      ? `Saved URL ${searxngStatus.url} needs an explicit port for Docker control.`
-      : searxngStatus.running
-        ? `Running at ${searxngStatus.url}`
-        : `Stopped. Ready to start at ${searxngStatus.url}`
+  const servicesSettingsDirty = savedSearxngUrl !== currentSearxngUrl
+  const canToggleServices = !servicesSettingsDirty
+  const servicesStatusText = servicesStatus.running
+    ? `Running. Postgres is ${servicesStatus.postgres?.status || 'unknown'} and SearXNG is ${servicesStatus.searxng?.status || 'unknown'}.`
+    : `Stopped. Postgres is ${servicesStatus.postgres?.status || 'missing'} and SearXNG is ${servicesStatus.searxng?.status || 'missing'}.`
+  const geminiConfigured = Boolean(settings.gemini_api_key)
   const filteredReviewQueue = reviewQueue.filter((item) => {
     const matchesDate = !reviewFilterDate || item.date === reviewFilterDate
     const matchesStatus = reviewFilterStatus === 'all' || item.status === reviewFilterStatus
@@ -805,10 +846,10 @@ function App() {
                 <MetricCard label="Models" value={String(models.length)} hint="Ollama models" icon="⬡" />
                 <MetricCard label="Drafts" value={String(reviewQueue.length)} hint="In review queue" icon="◎" />
                 <MetricCard
-                  label="SearXNG"
-                  value={searxngStatus.running ? 'Online' : 'Offline'}
-                  hint={`Port ${searxngStatus.port || 8080}`}
-                  icon={searxngStatus.running ? '🟢' : '🔴'}
+                  label="Infra"
+                  value={servicesStatus.running ? 'Online' : 'Offline'}
+                  hint={`Postgres: ${servicesStatus.postgres?.status || 'missing'} | SearXNG: ${servicesStatus.searxng?.status || 'missing'}`}
+                  icon={servicesStatus.running ? '🟢' : '🔴'}
                 />
               </div>
 
@@ -818,8 +859,8 @@ function App() {
                   <PrimaryButton onClick={() => setActiveView('channels')}>+ New Channel</PrimaryButton>
                   <SecondaryButton onClick={() => setActiveView('calendar')}>View Calendar</SecondaryButton>
                   <SecondaryButton onClick={() => setActiveView('review')}>Review Queue ({reviewQueue.length})</SecondaryButton>
-                  <SecondaryButton onClick={toggleSearxng}>
-                    {searxngStatus.running ? '⏹ Stop SearXNG' : '▶ Start SearXNG'}
+                  <SecondaryButton onClick={toggleServices}>
+                    {servicesStatus.running ? '⏹ Stop Services' : '▶ Start Services'}
                   </SecondaryButton>
                 </div>
               </Panel>
@@ -1131,6 +1172,33 @@ function App() {
                                     </div>
                                   )}
                                 </div>
+
+                                <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-4">
+                                  <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div>
+                                      <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Post Image</p>
+                                      <p className="mt-1 text-xs text-slate-500">Generate an optional Gemini image based on this post.</p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                      <PrimaryButton onClick={() => generateReviewImage(item.id)} loading={generatingImageId === item.id} disabled={!geminiConfigured}>
+                                        Generate Image
+                                      </PrimaryButton>
+                                      {reviewImages[item.id]?.download_url && (
+                                        <a href={`${api}${reviewImages[item.id].download_url}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50">
+                                          Download Image
+                                        </a>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {!geminiConfigured && (
+                                    <p className="mt-3 text-xs text-amber-600">Save a Gemini API key in Settings to enable image generation.</p>
+                                  )}
+                                  {reviewImages[item.id]?.download_url && (
+                                    <div className="mt-4 overflow-hidden rounded-xl border border-slate-100 bg-white p-3">
+                                      <img src={`${api}${reviewImages[item.id].download_url}`} alt={`Generated illustration for ${item.topic}`} className="w-full rounded-lg object-cover" />
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </article>
@@ -1180,6 +1248,9 @@ function App() {
                     </select>
                   </Field>
                   <Field label="SearXNG URL"><input className={inputClass} value={settings.searxng_url || ''} onChange={e => setSettings(p => ({ ...p, searxng_url: e.target.value }))} placeholder="http://localhost:8080" /></Field>
+                  <Field label="Gemini API Key" help="Optional. Needed only for post image generation.">
+                    <input className={inputClass} type="password" value={settings.gemini_api_key || ''} onChange={e => setSettings(p => ({ ...p, gemini_api_key: e.target.value }))} placeholder="AIza..." />
+                  </Field>
                 </div>
                 <div className="mt-4">
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">SearXNG Search Preferences</p>
@@ -1226,23 +1297,31 @@ function App() {
                 )}
               </Panel>
 
-              {/* SearXNG control */}
-              <Panel title="SearXNG Engine" subtitle="Uses the saved SearXNG URL to control the local Docker container.">
+              {/* Infra control */}
+              <Panel title="Docker Services" subtitle="Starts or stops the local Postgres and SearXNG infrastructure together.">
                 <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-5 py-4">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">Container Status</p>
+                    <p className="text-sm font-semibold text-slate-900">Infrastructure Status</p>
                     <p className="mt-0.5 text-xs text-slate-500">
-                      {searxngStatusText}
+                      {servicesStatusText}
                     </p>
-                    {searxngSettingsDirty && (
-                      <p className="mt-1 text-xs text-amber-600">Save Settings to apply the edited SearXNG URL before starting or stopping the container.</p>
+                    {servicesSettingsDirty && (
+                      <p className="mt-1 text-xs text-amber-600">Save Settings to apply the edited SearXNG URL before starting or stopping services.</p>
                     )}
                   </div>
-                  {searxngStatus.running ? (
-                    <DangerButton onClick={toggleSearxng} loading={togglingSearxng} disabled={!canToggleSearxng}>Stop SearXNG</DangerButton>
+                  {servicesStatus.running ? (
+                    <DangerButton onClick={toggleServices} loading={togglingServices} disabled={!canToggleServices}>Stop Services</DangerButton>
                   ) : (
-                    <PrimaryButton onClick={toggleSearxng} loading={togglingSearxng} disabled={!canToggleSearxng}>Start SearXNG</PrimaryButton>
+                    <PrimaryButton onClick={toggleServices} loading={togglingServices} disabled={!canToggleServices}>Start Services</PrimaryButton>
                   )}
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <div className="rounded-xl border border-slate-100 bg-white px-4 py-3 text-sm text-slate-600">
+                    <strong className="text-slate-900">Postgres</strong>: {servicesStatus.postgres?.status || 'missing'}
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-white px-4 py-3 text-sm text-slate-600">
+                    <strong className="text-slate-900">SearXNG</strong>: {servicesStatus.searxng?.status || 'missing'}
+                  </div>
                 </div>
               </Panel>
             </div>
@@ -1296,6 +1375,20 @@ function App() {
             <Field label="Content Pillar" help="Leave blank to use weekly template default"><input className={inputClass} value={overrideForm.pillar} onChange={e => setOverrideForm(p => ({ ...p, pillar: e.target.value }))} placeholder="Override template pillar" /></Field>
             <Field label="Topic"><input className={inputClass} value={overrideForm.topic} onChange={e => setOverrideForm(p => ({ ...p, topic: e.target.value }))} placeholder={overrideForm.mode === 'source_dump' ? 'e.g. Weekly AI news summary' : 'Specific subject for this day'} /></Field>
             <Field label="Special Instructions"><input className={inputClass} value={overrideForm.special_instructions} onChange={e => setOverrideForm(p => ({ ...p, special_instructions: e.target.value }))} placeholder="e.g. Keep under 300 words" /></Field>
+            <div className="rounded-xl border border-slate-100 bg-white p-4">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={overrideForm.suggest_new_topic === true}
+                  onChange={e => setOverrideForm(p => ({ ...p, suggest_new_topic: e.target.checked }))}
+                  className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Suggest new topic</p>
+                  <p className="mt-1 text-xs text-slate-500">Use channel memory and live search to avoid repeating older themes for this pillar.</p>
+                </div>
+              </label>
+            </div>
             <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-4">
               <p className="text-xs font-bold uppercase tracking-wider text-slate-500">How This Run Works</p>
               <p className="mt-2 text-sm text-slate-600">
@@ -1382,6 +1475,8 @@ function App() {
                   topic: '',
                   special_instructions: '',
                   mode: 'pre_generated',
+                  search_additional: true,
+                  suggest_new_topic: false,
                 })
               }}>Re-Plan This Day</SecondaryButton>
             </div>
@@ -1398,6 +1493,8 @@ function App() {
                   topic: '',
                   special_instructions: '',
                   mode: 'pre_generated',
+                  search_additional: true,
+                  suggest_new_topic: false,
                 })
               }}>Plan This Day</PrimaryButton>
             </div>

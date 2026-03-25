@@ -1,21 +1,17 @@
 """
-Memory service for ContentPilot — episodic, preference, and contextual memory.
-
-Uses Chroma + HuggingFace for episodic similarity search, and SQLAlchemy for
-preference / contextual memory storage.
+Memory service for ContentPilot: episodic, preference, and contextual memory.
 """
 
 from __future__ import annotations
 
-import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from sqlalchemy import select
 
-from src.backend.db.database import Base, get_engine, get_session_factory
-from src.backend.models.content_models import MemoryRecord
+from db.database import Base, get_engine, get_session_factory
+from models.content_models import MemoryRecord
 
 
 class MemoryService:
@@ -49,8 +45,6 @@ class MemoryService:
         except Exception:
             pass
 
-    # ── CRUD ──────────────────────────────────────────────────────────
-
     def add_memory(
         self,
         channel_id: str,
@@ -82,12 +76,11 @@ class MemoryService:
     ) -> List[Dict[str, Any]]:
         self._ensure_table()
         with self._session() as db:
-            q = select(MemoryRecord).where(MemoryRecord.channel_id == channel_id)
+            query = select(MemoryRecord).where(MemoryRecord.channel_id == channel_id)
             if memory_type:
-                q = q.where(MemoryRecord.type == memory_type)
-            q = q.order_by(MemoryRecord.created_at.desc())
-            rows = db.execute(q).scalars().all()
-            return [self._serialize(r) for r in rows]
+                query = query.where(MemoryRecord.type == memory_type)
+            rows = db.execute(query.order_by(MemoryRecord.created_at.desc())).scalars().all()
+            return [self._serialize(row) for row in rows]
 
     def delete_memory(self, memory_id: str) -> bool:
         self._ensure_table()
@@ -110,8 +103,6 @@ class MemoryService:
             "created_at": record.created_at.isoformat(),
         }
 
-    # ── Episodic memory ──────────────────────────────────────────────
-
     def store_episodic_memory(
         self,
         channel_id: str,
@@ -120,14 +111,19 @@ class MemoryService:
         content_summary: str,
         date: str,
     ) -> Dict[str, Any]:
-        """Store a summary of an approved post for future topic-avoidance."""
-        embedding_text = f"{topic} | {pillar} | {content_summary[:500]}"
+        topic_label = " ".join(topic.split()).strip() or "Untitled topic"
+        content_preview = " ".join(content_summary.split())[:280]
         return self.add_memory(
             channel_id=channel_id,
             memory_type="episodic",
-            content=f"[{date}] {pillar}: {topic}",
-            metadata={"topic": topic, "pillar": pillar, "date": date},
-            embedding_text=embedding_text,
+            content=f"[{date}] {pillar}: {topic_label}",
+            metadata={
+                "topic": topic_label,
+                "pillar": pillar,
+                "date": date,
+                "content_preview": content_preview,
+            },
+            embedding_text=f"{topic_label} | {pillar} | {content_preview}",
         )
 
     def store_preference_memory(
@@ -135,7 +131,6 @@ class MemoryService:
         channel_id: str,
         instruction: str,
     ) -> Dict[str, Any]:
-        """Log a user refinement instruction as a preference signal."""
         return self.add_memory(
             channel_id=channel_id,
             memory_type="preference",
@@ -148,18 +143,50 @@ class MemoryService:
         channel_id: str,
         limit: int = 10,
     ) -> List[str]:
-        """Return recent episodic memory entries as a list of text strings."""
-        memories = self.list_memories(channel_id, memory_type="episodic")
-        return [m["content"] for m in memories[:limit]]
+        return [memory["content"] for memory in self.list_memories(channel_id, "episodic")[:limit]]
+
+    def get_recent_topic_labels(
+        self,
+        channel_id: str,
+        limit: int = 10,
+    ) -> List[str]:
+        labels: List[str] = []
+        for memory in self.list_memories(channel_id, "episodic")[:limit]:
+            metadata = memory.get("metadata") or {}
+            label = str(metadata.get("topic") or memory.get("content") or "").strip()
+            if label:
+                labels.append(label)
+        return labels
 
     def get_preference_patterns(
         self,
         channel_id: str,
-        limit: int = 15,
+        limit: int = 10,
     ) -> List[str]:
-        """Return recent preference memories as guidance strings."""
-        memories = self.list_memories(channel_id, memory_type="preference")
-        return [m["content"] for m in memories[:limit]]
+        seen: set[str] = set()
+        patterns: List[str] = []
+        for memory in self.list_memories(channel_id, "preference"):
+            content = " ".join(str(memory.get("content") or "").split())
+            lowered = content.lower()
+            if not lowered or lowered in seen:
+                continue
+            seen.add(lowered)
+            patterns.append(content)
+            if len(patterns) >= limit:
+                break
+        return patterns
+
+    def get_contextual_notes(
+        self,
+        channel_id: str,
+        limit: int = 10,
+    ) -> List[str]:
+        notes: List[str] = []
+        for memory in self.list_memories(channel_id, "contextual")[:limit]:
+            content = str(memory.get("content") or "").strip()
+            if content:
+                notes.append(content)
+        return notes
 
     def build_memory_context(
         self,
@@ -167,30 +194,27 @@ class MemoryService:
         context_notes: str = "",
         topic: str = "",
     ) -> str:
-        """
-        Build a combined memory context string to inject into the writer prompt.
-        Includes: contextual notes + episodic avoidance + preference patterns.
-        """
         parts: List[str] = []
 
-        # Contextual notes (user-defined persistent notes)
         if context_notes.strip():
             parts.append(f"Persistent channel notes:\n{context_notes.strip()}")
 
-        # Episodic memory: recent posts to avoid repeating
+        contextual_entries = self.get_contextual_notes(channel_id, limit=10)
+        if contextual_entries:
+            notes = "\n".join(f"  - {note}" for note in contextual_entries)
+            parts.append(f"Saved channel memories:\n{notes}")
+
         recent_topics = self.get_recent_episodic_summaries(channel_id, limit=10)
         if recent_topics:
-            topics_str = "\n".join(f"  - {t}" for t in recent_topics)
-            parts.append(
-                f"Recent posts (AVOID repeating these topics):\n{topics_str}"
-            )
+            topics = "\n".join(f"  - {entry}" for entry in recent_topics)
+            parts.append(f"Recent approved posts to avoid repeating:\n{topics}")
 
-        # Preference memory: learned editing patterns
         preferences = self.get_preference_patterns(channel_id, limit=10)
         if preferences:
-            pref_str = "\n".join(f"  - {p}" for p in preferences)
-            parts.append(
-                f"Learned user preferences (apply these writing style adjustments):\n{pref_str}"
-            )
+            pref_str = "\n".join(f"  - {pref}" for pref in preferences)
+            parts.append(f"Learned refinement preferences:\n{pref_str}")
+
+        if topic.strip():
+            parts.append(f"Current requested topic or pillar:\n  - {topic.strip()}")
 
         return "\n\n".join(parts)

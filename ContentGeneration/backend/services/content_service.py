@@ -10,20 +10,29 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 import httpx
-from sqlalchemy import select, text
+from sqlalchemy import inspect, select, text
 
-from src.backend.agents.graph import content_graph
-from src.backend.core.config import settings
-from src.backend.db.database import Base, get_engine, get_session_factory
-from src.backend.models.content_models import (
+from agents.graph import content_graph
+from core.config import settings
+from db.database import Base, get_engine, get_session_factory
+from models.content_models import (
     ChannelRecord,
-    EmbeddingRecord,
     GenerationRunRecord,
     MemoryRecord,
+    ReviewImageRecord,
     ReviewItemRecord,
     SourceDumpItemRecord,
 )
-from src.backend.services.run_events import cleanup_run_queue, emit_run_event, get_run_queue
+from services.image_service import (
+    ImageGenerationError,
+    build_image_prompt,
+    generate_image_bytes,
+    image_metadata,
+    persist_image_file,
+)
+from services.memory_service import MemoryService
+from services.research_pipeline import collect_research_material, search_searxng
+from services.run_events import emit_run_event, get_run_queue
 
 
 def _default_weekly_template() -> Dict[str, str]:
@@ -40,7 +49,8 @@ def _default_weekly_template() -> Dict[str, str]:
 
 class ContentService:
     def __init__(self) -> None:
-        base_dir = Path(__file__).resolve().parents[4]
+        base_dir = Path(__file__).resolve().parents[2]
+        self._project_dir = base_dir
         self._data_dir = base_dir / ".contentpilot"
         self._settings_file = self._data_dir / "settings.json"
         self._data_dir.mkdir(parents=True, exist_ok=True)
@@ -54,15 +64,10 @@ class ContentService:
             "searxng_categories": "general",
             "searxng_max_results": 4,
             "searxng_time_range": "any",
+            "gemini_api_key": "",
         }
         self._load_runtime_settings()
-
-        # Memory service (lazy init after DB is configured)
-        from src.backend.services.memory_service import MemoryService
         self._memory = MemoryService(get_db_url_fn=self.ensure_database_configured)
-
-        from src.backend.services.embedding_service import EmbeddingService
-        self._embeddings = EmbeddingService(get_db_url_fn=self.ensure_database_configured)
 
     def initialize_storage(self) -> None:
         db_url = self._settings.get("database_url")
@@ -80,18 +85,49 @@ class ContentService:
                     tables=[
                         ChannelRecord.__table__,
                         ReviewItemRecord.__table__,
+                        ReviewImageRecord.__table__,
                         SourceDumpItemRecord.__table__,
                         GenerationRunRecord.__table__,
                         MemoryRecord.__table__,
-                        EmbeddingRecord.__table__,
                     ],
                 )
+                self._run_schema_migrations(engine)
             except Exception as exc:
                 print(f"Database initialization failed or deferred: {exc}")
 
         import threading
 
         threading.Thread(target=_init, daemon=True).start()
+
+    @staticmethod
+    def _run_schema_migrations(engine) -> None:
+        inspector = inspect(engine)
+        table_names = set(inspector.get_table_names())
+
+        if "review_items" in table_names:
+            existing_columns = {column["name"] for column in inspector.get_columns("review_items")}
+            dialect = engine.dialect.name
+            statements: list[str] = []
+
+            if "generation_context" not in existing_columns:
+                statements.append(
+                    "ALTER TABLE review_items ADD COLUMN generation_context TEXT NOT NULL DEFAULT ''"
+                )
+
+            if "source_urls" not in existing_columns:
+                if dialect == "postgresql":
+                    statements.append(
+                        "ALTER TABLE review_items ADD COLUMN source_urls JSON NOT NULL DEFAULT '[]'::json"
+                    )
+                else:
+                    statements.append(
+                        "ALTER TABLE review_items ADD COLUMN source_urls JSON NOT NULL DEFAULT '[]'"
+                    )
+
+            if statements:
+                with engine.begin() as conn:
+                    for statement in statements:
+                        conn.execute(text(statement))
 
     def _load_runtime_settings(self) -> None:
         if not self._settings_file.exists():
@@ -157,6 +193,7 @@ class ContentService:
             "status": record.status,
             "content": record.content,
             "chat_history": record.chat_history or [],
+            "source_urls": record.source_urls or [],
             "created_at": record.created_at.isoformat(),
             "updated_at": record.updated_at.isoformat(),
         }
@@ -182,6 +219,49 @@ class ContentService:
         if key in {"ollama_base_url", "searxng_url"}:
             normalized = normalized.rstrip("/")
         return normalized
+
+    @staticmethod
+    def _mask_settings(data: Dict[str, Any]) -> Dict[str, Any]:
+        masked = dict(data)
+        if masked.get("gemini_api_key"):
+            masked["gemini_api_key"] = "configured"
+        return masked
+
+    async def _ollama_generate(self, prompt: str, model: Optional[str] = None, timeout: float = 120.0) -> str:
+        config = self.validate_ollama_runtime_config(model)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                f"{config['base_url']}/api/generate",
+                json={"model": config["model_name"], "prompt": prompt, "stream": False},
+            )
+            response.raise_for_status()
+            return response.json().get("response", "").strip()
+
+    @staticmethod
+    def _looks_like_topic(value: str) -> str:
+        text = " ".join((value or "").replace('"', "").split())
+        if not text:
+            return ""
+        return text.splitlines()[0].strip(" -:*")[:160]
+
+    @staticmethod
+    def _instruction_needs_research(instruction: str) -> bool:
+        lowered = instruction.lower()
+        triggers = [
+            "update",
+            "latest",
+            "current",
+            "new source",
+            "new sources",
+            "fact-check",
+            "fact check",
+            "verify",
+            "research",
+            "search",
+            "add data",
+            "add stats",
+        ]
+        return any(token in lowered for token in triggers)
 
     # ── DB / config helpers ──────────────────────────────────────────
 
@@ -221,7 +301,7 @@ class ContentService:
     # ── Settings ─────────────────────────────────────────────────────
 
     def get_settings(self) -> Dict[str, Any]:
-        return {k: v for k, v in self._settings.items()}
+        return self._mask_settings({key: value for key, value in self._settings.items()})
 
     def update_settings(self, updates: Dict[str, Any]) -> Dict[str, Any]:
         normalized_updates = {
@@ -369,6 +449,7 @@ class ContentService:
                 "special_instructions": override.get("special_instructions", ""),
                 "mode": override.get("mode", "pre_generated"),
                 "search_additional": override.get("search_additional", True),
+                "suggest_new_topic": override.get("suggest_new_topic", False),
             }
             record.overrides = overrides
             record.updated_at = datetime.utcnow()
@@ -461,17 +542,89 @@ class ContentService:
             db.add(run_record)
         return {"run_id": run_id, "status": "queued", "dates": dates}
 
+    async def _resolve_generation_topic(
+        self,
+        channel_payload: Dict[str, Any],
+        channel_id: str,
+        pillar: str,
+        explicit_topic: str,
+        suggest_new_topic: bool,
+    ) -> str:
+        explicit = self._looks_like_topic(explicit_topic)
+        if explicit and not suggest_new_topic:
+            return explicit
+
+        recent_topics = self._memory.get_recent_topic_labels(channel_id, limit=12)
+        search_notes = ""
+        searx_url = str(self._settings.get("searxng_url") or "").rstrip("/")
+        if suggest_new_topic and searx_url:
+            query = f"{channel_payload.get('audience', '')} {pillar} AI topic ideas".strip()
+            try:
+                results = await search_searxng(
+                    searx_url,
+                    query,
+                    limit=min(int(self._settings.get("searxng_max_results", 4)), 5),
+                    categories=str(self._settings.get("searxng_categories", "general")) or None,
+                    time_range=str(self._settings.get("searxng_time_range", "any")) or None,
+                )
+                if results:
+                    search_notes = "\n".join(
+                        f"- {result.get('title')}: {result.get('snippet')}"
+                        for result in results
+                        if result.get("title") or result.get("snippet")
+                    )
+            except Exception as exc:
+                print(f"Topic search failed: {exc}")
+
+        prompt = (
+            "Choose one concrete content topic for the channel below.\n"
+            "Return only the final topic title, with no bullets or explanation.\n\n"
+            f"Channel: {channel_payload.get('name')}\n"
+            f"Audience: {channel_payload.get('audience')}\n"
+            f"Tone: {channel_payload.get('tone')}\n"
+            f"Pillar: {pillar}\n"
+            f"Persistent notes: {channel_payload.get('context_notes', '')}\n"
+        )
+        if explicit:
+            prompt += f"Starting topic hint: {explicit}\n"
+        if recent_topics:
+            prompt += "Avoid repeating these recent topics:\n" + "\n".join(f"- {topic}" for topic in recent_topics) + "\n"
+        if search_notes:
+            prompt += f"Fresh search ideas and signals:\n{search_notes}\n"
+        prompt += "Make the topic specific, new-feeling, and usable for one post."
+
+        try:
+            resolved = self._looks_like_topic(await self._ollama_generate(prompt, timeout=60.0))
+            if resolved:
+                return resolved
+        except Exception as exc:
+            print(f"Topic resolution failed: {exc}")
+
+        if explicit:
+            return explicit
+        return f"{pillar}: a fresh angle for {channel_payload.get('name', 'the channel')}"
+
     async def start_day_generation(
         self,
         channel_id: str,
         date_key: str,
         model: Optional[str] = None,
         search_additional: bool = True,
+        suggest_new_topic: bool = False,
     ) -> Dict[str, Any]:
         self.validate_ollama_runtime_config(model)
         self.initialize_storage()
         run_data = self._create_generation_run(channel_id, [date_key])
-        asyncio.create_task(self._run_day_generation(run_data["run_id"], channel_id, date_key, model, search_additional))
+        asyncio.create_task(
+            self._run_day_generation(
+                run_data["run_id"],
+                channel_id,
+                date_key,
+                model,
+                search_additional,
+                suggest_new_topic,
+            )
+        )
         return run_data
 
     async def generate_day(
@@ -481,6 +634,7 @@ class ContentService:
         model: Optional[str] = None,
         run_id: Optional[str] = None,
         search_additional: bool = True,
+        suggest_new_topic: bool = False,
     ) -> Dict[str, Any]:
         ollama_config = self.validate_ollama_runtime_config(model)
         self.initialize_storage()
@@ -503,10 +657,17 @@ class ContentService:
         day_key = day_dt.strftime("%A").lower()
         override = channel_payload.get("overrides", {}).get(date_key, {})
         pillar = override.get("pillar") or channel_payload.get("weekly_template", {}).get(day_key, "General")
-        topic = override.get("topic") or f"{pillar} for {channel_payload['name']}"
         special_instructions = override.get("special_instructions", "")
         mode = override.get("mode", "pre_generated")
         override_search = override.get("search_additional", True)
+        suggest_new_topic = bool(override.get("suggest_new_topic", False) or suggest_new_topic)
+        topic = await self._resolve_generation_topic(
+            channel_payload=channel_payload,
+            channel_id=channel_id,
+            pillar=pillar,
+            explicit_topic=override.get("topic", ""),
+            suggest_new_topic=suggest_new_topic,
+        )
         raw_sources = date_sources if mode == "source_dump" else [*(channel_payload.get("sources") or []), *date_sources]
 
         # Build memory context
@@ -557,12 +718,13 @@ class ContentService:
             "searxng_max_results": searxng_max_results,
             "memory_context": memory_context,
             "run_id": run_id,
-            "db_url": self.ensure_database_configured(),
             "agent_logs": [],
         }
 
         result_state = await content_graph.ainvoke(state_input)
         formatted = result_state.get("formatted_content", "") or result_state.get("draft", "")
+        generation_context = result_state.get("summarized_context", "") or result_state.get("scraped_data", "")
+        source_urls = result_state.get("source_urls", []) or []
 
         with self._session() as db:
             existing = db.execute(
@@ -578,6 +740,8 @@ class ContentService:
                 existing.topic = topic
                 existing.platform = channel_payload.get("platform", "whatsapp")
                 existing.content = formatted
+                existing.generation_context = generation_context
+                existing.source_urls = source_urls
                 existing.status = "draft"
                 existing.updated_at = now
                 record = existing
@@ -592,6 +756,8 @@ class ContentService:
                     status="draft",
                     content=formatted,
                     chat_history=[],
+                    generation_context=generation_context,
+                    source_urls=source_urls,
                     created_at=now,
                     updated_at=now,
                 )
@@ -606,6 +772,7 @@ class ContentService:
         date_key: str,
         model: Optional[str],
         search_additional: bool = True,
+        suggest_new_topic: bool = False,
     ) -> None:
         with self._session() as db:
             run = db.get(GenerationRunRecord, run_id)
@@ -616,7 +783,7 @@ class ContentService:
 
         error_message = ""
         try:
-            await self.generate_day(channel_id, date_key, model, run_id, search_additional)
+            await self.generate_day(channel_id, date_key, model, run_id, search_additional, suggest_new_topic)
             await emit_run_event(
                 run_id,
                 {
@@ -772,6 +939,15 @@ class ContentService:
     def delete_review_item(self, item_id: str) -> bool:
         self.initialize_storage()
         with self._session() as db:
+            image_record = db.execute(
+                select(ReviewImageRecord).where(ReviewImageRecord.review_item_id == item_id)
+            ).scalar_one_or_none()
+            if image_record:
+                try:
+                    Path(image_record.file_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+                db.delete(image_record)
             record = db.get(ReviewItemRecord, item_id)
             if not record:
                 return False
@@ -781,61 +957,113 @@ class ContentService:
     async def refine_review_item(
         self, item_id: str, instruction: str, model: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
-        ollama_config = self.validate_ollama_runtime_config(model)
+        self.validate_ollama_runtime_config(model)
         self.initialize_storage()
         with self._session() as db:
-            existing = db.get(ReviewItemRecord, item_id)
-            if not existing:
+            record = db.get(ReviewItemRecord, item_id)
+            if not record:
                 return None
-            current_content = existing.content
-            chat_history = list(existing.chat_history or [])
-            channel_id = existing.channel_id
+            channel = db.get(ChannelRecord, record.channel_id)
+            if not channel:
+                return None
+            source_rows = db.execute(
+                select(SourceDumpItemRecord).where(
+                    SourceDumpItemRecord.channel_id == record.channel_id,
+                    SourceDumpItemRecord.date == record.date,
+                )
+            ).scalars().all()
 
-        prompt = (
-            "You are refining content. Update the following post based on user instructions.\n\n"
-            f"--- CURRENT CONTENT ---\n{current_content}\n\n"
-            f"--- INSTRUCTION ---\n{instruction}\n\n"
-            "Output ONLY the new refined post."
+            current_content = record.content
+            chat_history = list(record.chat_history or [])
+            channel_id = record.channel_id
+            generation_context = record.generation_context or ""
+            source_urls = list(record.source_urls or [])
+            channel_payload = self._serialize_channel(channel)
+            raw_sources = [*(channel.sources or []), *source_urls, *[row.raw_content for row in source_rows if row.raw_content]]
+
+        needs_research = self._instruction_needs_research(instruction)
+        refined_context = generation_context
+        if needs_research:
+            research = await collect_research_material(
+                topic=record.topic or record.pillar or channel_payload["name"],
+                raw_sources=raw_sources,
+                searx_url=str(self._settings.get("searxng_url") or "").rstrip("/"),
+                mode="pre_generated",
+                search_additional=True,
+                searxng_categories=str(self._settings.get("searxng_categories", "general")),
+                searxng_time_range=str(self._settings.get("searxng_time_range", "any")),
+                searxng_max_results=int(self._settings.get("searxng_max_results", 4)),
+            )
+            refined_context = research.get("combined_text", "") or generation_context
+            merged_urls: List[str] = []
+            seen: set[str] = set()
+            for value in [*source_urls, *(research.get("provided_urls") or []), *(research.get("new_search_urls") or [])]:
+                normalized = (value or "").strip()
+                if normalized and normalized not in seen:
+                    seen.add(normalized)
+                    merged_urls.append(normalized)
+            source_urls = merged_urls
+
+        memory_context = self._memory.build_memory_context(
+            channel_id=channel_id,
+            context_notes=channel_payload.get("context_notes", ""),
+            topic=record.topic or record.pillar or "",
         )
+        chat_lines = "\n".join(
+            f"- {entry.get('instruction', '')}"
+            for entry in chat_history[-6:]
+            if entry.get("instruction")
+        )
+        prompt = (
+            "You are refining a previously generated post.\n"
+            "Use the current post, source context, channel memory, and the latest instruction.\n"
+            "Return only the revised post.\n\n"
+            f"Channel: {channel_payload.get('name')}\n"
+            f"Audience: {channel_payload.get('audience')}\n"
+            f"Tone: {channel_payload.get('tone')}\n"
+            f"Platform: {channel_payload.get('platform')}\n"
+            f"Pillar: {record.pillar}\n"
+            f"Topic: {record.topic}\n\n"
+            f"--- CURRENT CONTENT ---\n{current_content}\n\n"
+            f"--- ORIGINAL / BEST AVAILABLE CONTEXT ---\n{refined_context[:9000]}\n\n"
+            f"--- CHANNEL MEMORY ---\n{memory_context}\n\n"
+        )
+        if chat_lines:
+            prompt += f"--- PRIOR REFINEMENT REQUESTS ---\n{chat_lines}\n\n"
+        if source_urls:
+            prompt += "--- SOURCE URLS ---\n" + "\n".join(f"- {url}" for url in source_urls[:20]) + "\n\n"
+        prompt += f"--- NEW USER INSTRUCTION ---\n{instruction}\n"
 
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(
-                    f"{ollama_config['base_url']}/api/generate",
-                    json={
-                        "model": ollama_config["model_name"],
-                        "prompt": prompt,
-                        "stream": False,
-                    },
-                )
-                resp.raise_for_status()
-                refined = resp.json().get("response", "").strip()
-
-            with self._session() as db:
-                record = db.get(ReviewItemRecord, item_id)
-                if record:
-                    record.content = refined
-                    chat_history.append(
-                        {
-                            "instruction": instruction,
-                            "timestamp": datetime.utcnow().isoformat(),
-                        }
-                    )
-                    record.chat_history = chat_history
-                    record.updated_at = datetime.utcnow()
-                    db.add(record)
-                    db.flush()
-
-                    # Store preference memory
-                    try:
-                        self._memory.store_preference_memory(channel_id, instruction)
-                    except Exception as exc:
-                        print(f"Failed to store preference memory: {exc}")
-
-                    return self._serialize_review_item(record)
+            refined = await self._ollama_generate(prompt, model=model, timeout=150.0)
         except Exception as exc:
             print(f"Refinement failed: {exc}")
-        return None
+            return None
+
+        with self._session() as db:
+            refreshed = db.get(ReviewItemRecord, item_id)
+            if not refreshed:
+                return None
+            refreshed.content = refined
+            refreshed.generation_context = refined_context or refreshed.generation_context
+            refreshed.source_urls = source_urls
+            chat_history.append(
+                {
+                    "instruction": instruction,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "result_preview": refined[:140],
+                    "used_research": needs_research,
+                }
+            )
+            refreshed.chat_history = chat_history
+            refreshed.updated_at = datetime.utcnow()
+            db.add(refreshed)
+            db.flush()
+            try:
+                self._memory.store_preference_memory(channel_id, instruction)
+            except Exception as exc:
+                print(f"Failed to store preference memory: {exc}")
+            return self._serialize_review_item(refreshed)
 
     # ── Memory ───────────────────────────────────────────────────────
 
@@ -847,6 +1075,83 @@ class ContentService:
 
     def delete_memory(self, memory_id: str) -> bool:
         return self._memory.delete_memory(memory_id)
+
+    def get_review_image(self, item_id: str) -> Optional[Dict[str, Any]]:
+        self.initialize_storage()
+        with self._session() as db:
+            record = db.execute(
+                select(ReviewImageRecord).where(ReviewImageRecord.review_item_id == item_id)
+            ).scalar_one_or_none()
+            if not record:
+                return None
+            return image_metadata(record, self._data_dir)
+
+    def get_review_image_file(self, item_id: str) -> Optional[tuple[Path, str]]:
+        self.initialize_storage()
+        with self._session() as db:
+            record = db.execute(
+                select(ReviewImageRecord).where(ReviewImageRecord.review_item_id == item_id)
+            ).scalar_one_or_none()
+            if not record or not record.file_path:
+                return None
+            path = Path(record.file_path)
+            if not path.exists():
+                return None
+            return path, record.mime_type
+
+    def generate_review_image(self, item_id: str) -> Dict[str, Any]:
+        api_key = str(self._settings.get("gemini_api_key") or "")
+        if not api_key.strip():
+            raise ImageGenerationError("Gemini API key is not configured. Save it in Settings first.")
+
+        self.initialize_storage()
+        with self._session() as db:
+            review_item = db.get(ReviewItemRecord, item_id)
+            if not review_item:
+                raise ValueError("Review item not found")
+            channel = db.get(ChannelRecord, review_item.channel_id)
+            if not channel:
+                raise ValueError("Channel not found")
+
+            prompt = build_image_prompt(
+                topic=review_item.topic or "",
+                pillar=review_item.pillar or "",
+                content=review_item.content or "",
+                channel_name=channel.name,
+                platform=review_item.platform or channel.platform or "whatsapp",
+            )
+            result = generate_image_bytes(api_key, prompt)
+            file_path = persist_image_file(self._data_dir, review_item.id, result["mime_type"], result["bytes"])
+
+            existing = db.execute(
+                select(ReviewImageRecord).where(ReviewImageRecord.review_item_id == item_id)
+            ).scalar_one_or_none()
+            now = datetime.utcnow()
+            if existing:
+                try:
+                    Path(existing.file_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+                existing.prompt = prompt
+                existing.mime_type = result["mime_type"]
+                existing.file_path = str(file_path)
+                existing.updated_at = now
+                db.add(existing)
+                db.flush()
+                return image_metadata(existing, self._data_dir)
+
+            image_record = ReviewImageRecord(
+                id=str(uuid4()),
+                review_item_id=item_id,
+                prompt=prompt,
+                mime_type=result["mime_type"],
+                file_path=str(file_path),
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(image_record)
+            db.flush()
+            return image_metadata(image_record, self._data_dir)
 
 
 content_service = ContentService()

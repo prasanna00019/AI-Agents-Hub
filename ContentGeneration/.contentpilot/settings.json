@@ -5,5 +5,6 @@
   "searxng_url": "http://localhost:5147",
   "searxng_categories": "general",
   "searxng_max_results": 5,
-  "searxng_time_range": "any"
+  "searxng_time_range": "any",
+  "gemini_api_key": ""
 }
