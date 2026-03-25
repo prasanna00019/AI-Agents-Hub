@@ -66,11 +66,11 @@ const ResultView = () => {
 
     return (
             <div className="space-y-6">
-                <div className="app-hero rounded-[36px] p-6 sm:p-8">
+                <div className="app-hero rounded-[36px] p-6 sm:p-8" style={{ background: 'linear-gradient(135deg, color-mix(in srgb, var(--card-strong) 92%, white), color-mix(in srgb, var(--card) 90%, white))' }}>
                     <div className="relative z-10 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                         <div className="space-y-3">
                             <div className="app-kicker">Completed run</div>
-                            <h2 className="app-display text-[clamp(2.3rem,3vw,4rem)]">{data.video_title || 'Generated notes'}</h2>
+                            <h2 className="app-display app-gradient-text text-[clamp(2.3rem,3vw,4rem)]">{data.video_title || 'Generated notes'}</h2>
                             <p className="app-lead max-w-3xl">
                                 Review the note structure, export options, study assets, and grounded chat in one workspace.
                             </p>

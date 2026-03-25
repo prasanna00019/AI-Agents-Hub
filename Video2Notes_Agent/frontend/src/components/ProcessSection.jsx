@@ -49,7 +49,7 @@ const ProcessSection = ({
             </div>
 
             <div className="max-w-4xl space-y-5">
-              <h2 className="app-display max-w-4xl">
+              <h2 className="app-display app-gradient-text max-w-4xl">
                 Turn videos, uploads, and playlists into notes you can search, save, and study.
               </h2>
               <p className="app-lead max-w-3xl">
@@ -82,7 +82,7 @@ const ProcessSection = ({
           </div>
         </div>
 
-        <div className="rounded-[36px] p-5 sm:p-8 app-card">
+        <div className="rounded-[36px] p-5 sm:p-8 app-card" style={{ background: 'linear-gradient(135deg, color-mix(in srgb, var(--card) 94%, white), color-mix(in srgb, var(--card-strong) 96%, white))' }}>
           <div className="mb-5 flex items-center justify-between gap-4">
             <div>
               <p className="app-eyebrow">Generate</p>
@@ -126,7 +126,7 @@ const ProcessSection = ({
             {mode === 'url' ? (
               <label className="flex flex-col gap-3">
                 <span className="app-eyebrow">Video URL or playlist</span>
-                <div className="flex items-center gap-3 rounded-[28px] px-5 py-4 app-surface-strong">
+                <div className="flex items-center gap-3 rounded-[28px] px-5 py-4 app-surface-strong" style={{ background: 'linear-gradient(135deg, color-mix(in srgb, var(--card-strong) 96%, white), color-mix(in srgb, var(--card) 92%, white))' }}>
                   <Youtube className="h-5 w-5 shrink-0" style={{ color: 'var(--accent-3)' }} />
                   <input
                     type="url"
@@ -148,7 +148,7 @@ const ProcessSection = ({
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={handleDrop}
                   className="flex min-h-52 w-full flex-col items-center justify-center gap-4 rounded-[30px] border-2 border-dashed px-6 py-8 text-center transition-transform duration-300 hover:-translate-y-0.5 app-surface-strong"
-                  style={{ borderColor: 'color-mix(in srgb, var(--accent) 24%, var(--border))' }}
+                  style={{ borderColor: 'color-mix(in srgb, var(--accent) 24%, var(--border))', background: 'linear-gradient(135deg, color-mix(in srgb, var(--card-strong) 96%, white), color-mix(in srgb, var(--card-soft) 94%, white))' }}
                 >
                   <div className="flex h-16 w-16 items-center justify-center rounded-full" style={{ background: 'color-mix(in srgb, var(--accent) 14%, white)', color: 'var(--accent)' }}>
                     <Upload className="h-8 w-8" />
@@ -176,7 +176,7 @@ const ProcessSection = ({
               </div>
             )}
 
-            <div className="flex flex-col gap-3 rounded-[28px] p-4 sm:flex-row sm:items-center sm:justify-between app-soft">
+            <div className="flex flex-col gap-3 rounded-[28px] p-4 sm:flex-row sm:items-center sm:justify-between app-soft" style={{ background: 'linear-gradient(135deg, color-mix(in srgb, var(--card-soft) 92%, white), color-mix(in srgb, var(--card-strong) 92%, white))' }}>
               <div>
                 <p className="text-sm font-semibold app-title">Advanced runtime settings</p>
                 <p className="text-sm leading-relaxed app-muted">Whisper options, note style, custom prompt templates, provider keys, timestamps, and database connectivity live here.</p>
@@ -232,7 +232,7 @@ const ProcessSection = ({
       </section>
 
       <aside className="space-y-4 pt-8">
-        <div className="rounded-[30px] p-6 app-card">
+        <div className="rounded-[30px] p-6 app-card" style={{ background: 'linear-gradient(135deg, color-mix(in srgb, var(--card-strong) 95%, white), color-mix(in srgb, var(--card) 90%, white))' }}>
           <p className="app-eyebrow">What this app does</p>
           <div className="mt-4 space-y-3 text-sm leading-relaxed app-muted">
             <p>Process one video, a local upload, or an entire playlist into structured markdown notes with timestamps, concepts, and action items.</p>
@@ -241,7 +241,7 @@ const ProcessSection = ({
           </div>
         </div>
 
-        <div className="rounded-[30px] p-6 text-white" style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--accent) 78%, black), color-mix(in srgb, var(--accent-2) 72%, black))', boxShadow: 'var(--shadow)' }}>
+        <div className="rounded-[30px] p-6 text-white" style={{ background: 'linear-gradient(160deg, color-mix(in srgb, var(--accent) 82%, black), color-mix(in srgb, var(--accent-2) 72%, black) 52%, color-mix(in srgb, var(--accent-3) 58%, black))', boxShadow: 'var(--shadow)' }}>
           <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-white/70">Workflow</p>
           <div className="mt-4 space-y-3 text-sm leading-relaxed text-white/90">
             <p>Use single-video mode for a focused note session or feed a playlist to queue a batch with per-video status and retry support.</p>

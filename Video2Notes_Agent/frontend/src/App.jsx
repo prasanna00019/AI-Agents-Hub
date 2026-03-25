@@ -11,9 +11,11 @@ const App = () => {
   return (
     <div className="app-shell min-h-screen overflow-x-hidden selection:bg-cyan-200 selection:text-slate-900" style={{ color: 'var(--ink)' }}>
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-24" style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--accent) 14%, transparent), transparent)' }} />
         <div className="absolute -left-24 top-10 h-72 w-72 rounded-full blur-3xl" style={{ background: 'color-mix(in srgb, var(--accent-3) 24%, transparent)', animation: 'drift 14s ease-in-out infinite' }} />
         <div className="absolute right-0 top-0 h-[28rem] w-[28rem] rounded-full blur-3xl" style={{ background: 'color-mix(in srgb, var(--accent) 16%, transparent)', animation: 'drift 18s ease-in-out infinite reverse' }} />
         <div className="absolute bottom-0 left-1/3 h-96 w-96 rounded-full blur-3xl" style={{ background: 'color-mix(in srgb, var(--accent-2) 14%, transparent)', animation: 'drift 16s ease-in-out infinite' }} />
+        <div className="absolute right-[12%] top-[22%] h-64 w-64 rounded-full blur-3xl" style={{ background: 'color-mix(in srgb, var(--accent-3) 18%, transparent)', animation: 'drift 13s ease-in-out infinite reverse' }} />
         <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, var(--page-bg-alt), var(--page-bg))' }} />
       </div>
 
