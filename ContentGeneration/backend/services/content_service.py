@@ -976,6 +976,8 @@ class ContentService:
             current_content = record.content
             chat_history = list(record.chat_history or [])
             channel_id = record.channel_id
+            record_topic = record.topic or ""
+            record_pillar = record.pillar or ""
             generation_context = record.generation_context or ""
             source_urls = list(record.source_urls or [])
             channel_payload = self._serialize_channel(channel)
@@ -985,7 +987,7 @@ class ContentService:
         refined_context = generation_context
         if needs_research:
             research = await collect_research_material(
-                topic=record.topic or record.pillar or channel_payload["name"],
+                topic=record_topic or record_pillar or channel_payload["name"],
                 raw_sources=raw_sources,
                 searx_url=str(self._settings.get("searxng_url") or "").rstrip("/"),
                 mode="pre_generated",
@@ -1007,7 +1009,7 @@ class ContentService:
         memory_context = self._memory.build_memory_context(
             channel_id=channel_id,
             context_notes=channel_payload.get("context_notes", ""),
-            topic=record.topic or record.pillar or "",
+            topic=record_topic or record_pillar or "",
         )
         chat_lines = "\n".join(
             f"- {entry.get('instruction', '')}"
@@ -1022,8 +1024,8 @@ class ContentService:
             f"Audience: {channel_payload.get('audience')}\n"
             f"Tone: {channel_payload.get('tone')}\n"
             f"Platform: {channel_payload.get('platform')}\n"
-            f"Pillar: {record.pillar}\n"
-            f"Topic: {record.topic}\n\n"
+            f"Pillar: {record_pillar}\n"
+            f"Topic: {record_topic}\n\n"
             f"--- CURRENT CONTENT ---\n{current_content}\n\n"
             f"--- ORIGINAL / BEST AVAILABLE CONTEXT ---\n{refined_context[:9000]}\n\n"
             f"--- CHANNEL MEMORY ---\n{memory_context}\n\n"
